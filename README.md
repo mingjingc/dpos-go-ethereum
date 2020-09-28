@@ -3,7 +3,7 @@ Dpos Go Ethereum is a project base on [go-ethereum](https://github.com/ethereum/
 Up to now, I write a Dpos consensus algorithm. I use header extra to wrap Dpos related information. Although it's work, but it not the best idea. 
 After finish this target, my next step is to try to modify EVM for supporting Dpos vote. If you have any awesome idea, I love to hear it.
 
-这是我在学习[go-ethereum-1.9.8](https://github.com/ethereum/go-ethereum/tree/v1.9.8)源代码的时候，通过POA改的DPOS以太坊项目，引入投票来选取候选人，有关的Dpos信息存在区块Header的Extra字段，利用其Token来投票，就是你有多少Eth，就可以投多少票，投票后扣除相应帐号的Eth，经过一个Epoch，候选人重新从投票结果中产生。项目正在完善中，以后期望通过修改虚拟机，修改让Eth成为投票资源，类似[xuperchain](https://github.com/xuperchain/xuperchain)，项目还有很多不足之处，请多多指教和欢迎参与。
+这是我在学习[go-ethereum-1.9.8](https://github.com/ethereum/go-ethereum/tree/v1.9.8)源代码的时候，学习POA算法模块后灵感而发所写的DPOS以太坊项目，引入投票来选取候选人，有关的Dpos信息存在区块Header的Extra字段，利用其Token来投票，就是你有多少Eth，就可以投多少票，投票后扣除相应帐号的Eth，经过一个Epoch，候选人重新从投票结果中产生。项目正在完善中，以后期望通过修改虚拟机，修改让Eth成为投票资源，类似[xuperchain](https://github.com/xuperchain/xuperchain)，项目还有很多不足之处，请多多指教和欢迎参与。
 
 ## 部署流程
 

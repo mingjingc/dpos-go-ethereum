@@ -282,6 +282,7 @@ func (s *StateDB) GetCodeHash(addr common.Address) common.Hash {
 }
 
 // GetState retrieves a value from the given account's storage trie.
+// func(contract.Address(), common.BigToHash(loc))
 func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
@@ -382,6 +383,7 @@ func (s *StateDB) SetCode(addr common.Address, code []byte) {
 	}
 }
 
+// SetState 调用 interpreter.evm.StateDB.SetState(contract.Address(), loc, common.BigToHash(val))
 func (s *StateDB) SetState(addr common.Address, key, value common.Hash) {
 	stateObject := s.GetOrNewStateObject(addr)
 	if stateObject != nil {

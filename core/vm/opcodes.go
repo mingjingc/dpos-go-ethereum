@@ -120,8 +120,8 @@ const (
 const (
 	POP OpCode = 0x50 + iota
 	MLOAD
-	MSTORE
-	MSTORE8
+	MSTORE  // mem[p..(p+32)) := v
+	MSTORE8 // mem[p] := v & 0xff - only modifies a single byte
 	SLOAD
 	/*
 		store: { 0x0 => 0x1 }

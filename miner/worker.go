@@ -715,6 +715,7 @@ func (w *worker) updateSnapshot() {
 
 // 执行交易
 // 无论是智能合约、普通转账，只要是交易，都交由evm执行
+// evm是 Ethereum 的核心，是 Ethereum 的状态转换机
 func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
 	snap := w.current.state.Snapshot()
 

@@ -25,6 +25,7 @@ import (
 
 // calcMemSize64 calculates the required memory size, and returns
 // the size and whether the result overflowed uint64
+// 每执行一个指令，都需要计算总的Memory，防止在接下来执行该指令过程中内存溢出
 func calcMemSize64(off, l *big.Int) (uint64, bool) {
 	if !l.IsUint64() {
 		return 0, true
@@ -81,6 +82,8 @@ func bigUint64(v *big.Int) (uint64, bool) {
 }
 
 // toWordSize returns the ceiled word size required for memory expansion.
+// 将字节转换成字，向上取整
+// EVM是256位虚拟机，字 = 256Bit = 32字节
 func toWordSize(size uint64) uint64 {
 	if size > math.MaxUint64-31 {
 		return math.MaxUint64/32 + 1

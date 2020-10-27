@@ -138,6 +138,7 @@ func New(config *params.DposConfig, db ethdb.Database) *Dpos {
 	}
 }
 
+// rlp不支持自定义结构，我们用json代替
 type DposData struct {
 	Signers map[common.Address]struct{} `json:"signers"` //每到一个Epoch，区块将本地排序的singers填充到这里
 

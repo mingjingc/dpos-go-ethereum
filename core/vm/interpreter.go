@@ -83,7 +83,8 @@ type EVMInterpreter struct {
 	hasher    keccakState // Keccak256 hasher instance shared across opcodes
 	hasherBuf common.Hash // Keccak256 hasher result array shared aross opcodes
 
-	readOnly   bool   // Whether to throw on stateful modifications
+	readOnly bool // Whether to throw on stateful modifications
+	// 执行合约后如有返回值
 	returnData []byte // Last CALL's return data for subsequent reuse
 }
 
@@ -132,6 +133,7 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 // It's important to note that any errors returned by the interpreter should be
 // considered a revert-and-consume-all-gas operation except for
 // errExecutionReverted which means revert-and-keep-gas-left.
+// 执行前，EVM先获取快照，若执行出错或需要回滚，则将状态回滚
 func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
 	if in.intPool == nil {
 		in.intPool = poolOfIntPools.get()
@@ -216,7 +218,11 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 
 		// Get the operation from the jump table and validate the stack to ensure there are
 		// enough stack items available to perform the operation.
+		// 获取操作码
 		op = contract.GetOp(pc)
+		fmt.Println("操作指令", op.String())
+
+		// 获取操作指令
 		operation := in.cfg.JumpTable[op]
 		if !operation.valid {
 			return nil, fmt.Errorf("invalid opcode 0x%x", int(op))
@@ -251,6 +257,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		// Memory check needs to be done prior to evaluating the dynamic gas portion,
 		// to detect calculation overflows
 		if operation.memorySize != nil { // 执行当前指令需要内存
+			// 计算内存是用uint64类型，而虚拟机是256位，最大值远远超过uint64，所以要进行溢出判断，不过我的疑惑是：为什么计算不都使用bit.Int
 			memSize, overflow := operation.memorySize(stack)
 			if overflow {
 				return nil, errGasUintOverflow

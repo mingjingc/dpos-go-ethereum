@@ -31,10 +31,11 @@ type (
 
 var errGasUintOverflow = errors.New("gas uint64 overflow")
 
+// 指令对象，EVM用一个Byte表示指令，一个最多可以表示256个指令
 type operation struct {
 	// execute is the operation function
-	execute     executionFunc
-	constantGas uint64
+	execute     executionFunc // 指令具体的操作
+	constantGas uint64        // 指令都有固定gas，这是未执行之前
 	dynamicGas  gasFunc
 	// minStack tells how many stack items are required
 	minStack int

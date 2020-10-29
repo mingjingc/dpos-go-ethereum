@@ -135,9 +135,13 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		snap.Recents[number] = signer
 
 		dposData := DposData{}
-		//fmt.Printf("生成快照的header %d长度：%d\n", header.Number.Uint64(), len(header.Extra))
 		DposDataDecode(header.Extra[extraVanity:len(header.Extra)-extraSeal], &dposData)
 		if number%snap.config.Epoch == 0 {
+			if number > 0 {
+				// 清空投票
+				snap.Votes = map[common.Address]*Vote{}
+				snap.CandidateTally = map[common.Address]*big.Int{}
+			}
 			snap.Signers = dposData.Signers
 		}
 		votes, cancelVotes := dposData.Votes, dposData.CancelVotes
@@ -223,6 +227,18 @@ func (s *Snapshot) getVoteTally(user common.Address) *big.Int {
 		tally.Set(s.Votes[user].Tall)
 	}
 	return tally
+}
+
+// 注意传指针可能会改变原来值
+func (s *Snapshot) getVotes() map[common.Address]*Vote {
+	votes := map[common.Address]*Vote{}
+	for addr, vote := range s.Votes {
+		votes[addr] = &Vote{
+			To:   vote.To,
+			Tall: big.NewInt(0).Set(vote.Tall),
+		}
+	}
+	return votes
 }
 
 // signersAscending implements the sort interface to allow sorting a list of addresses

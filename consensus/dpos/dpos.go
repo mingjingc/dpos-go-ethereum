@@ -398,6 +398,22 @@ func (d *Dpos) FinalizeAndAssemble(chain consensus.ChainReader, header *types.He
 	return types.NewBlock(header, txs, nil, receipts), nil
 }
 
+// when meet a epoch, refund to all accounts. and clean up vote in the snapshot of this block
+func (d *Dpos) cleanUpVote(chain consensus.ChainReader, header *types.Header, state *state.StateDB) {
+	number := header.Number.Uint64()
+	if number == 0 {
+		return
+	}
+	snap, _ := d.snapshot(chain, number-1, header.ParentHash, nil)
+	if snap == nil {
+		return
+	}
+	votes := snap.getVotes()
+	for addr, vote := range votes {
+		state.AddBalance(addr, vote.Tall)
+	}
+}
+
 func (d *Dpos) calVote(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction) (votes map[common.Address]Vote, cancelVotes map[common.Address]Vote) {
 	votes = map[common.Address]Vote{}
 	cancelVotes = map[common.Address]Vote{}

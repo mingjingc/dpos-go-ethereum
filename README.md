@@ -86,16 +86,16 @@ bootnode --genkey=boot.key #生成bootnode标识
 bootnode --nodekey=boot.key #启动bootnode
 ```
 
-```sh
-geth --datadir node1 --networkid 31745 --gasprice '1' --port 30312 --rpc --rpcaddr '0.0.0.0' --rpcport 8501 --rpcapi 'personal,db,eth,net,web3,txpool,miner,dpos'  --bootnodes 'enode://e37fabfbf0744a934909602f2f8a7f3669fee10f7508c12d4524a051efa4aecec60fcb314e697f4f5ffcec6ea3859f03a6de66e20906353016fdff4d2b20768a@127.0.0.1:0?discport=30301' --allow-insecure-unlock --unlock 002dd817a05983c7371bccd498d8dce6b1910295
+```sh 
+geth --datadir node1 --networkid 31745 --gasprice '1' --port 30312 --rpc --rpcaddr '0.0.0.0' --rpcport 8501 --rpcapi 'personal,db,eth,net,web3,txpool,miner,dpos' --nat extip:127.0.0.1  --bootnodes 'enode://e37fabfbf0744a934909602f2f8a7f3669fee10f7508c12d4524a051efa4aecec60fcb314e697f4f5ffcec6ea3859f03a6de66e20906353016fdff4d2b20768a@127.0.0.1:0?discport=30301' --allow-insecure-unlock --unlock 002dd817a05983c7371bccd498d8dce6b1910295
 ```
 
 ```sh
-geth --datadir node2 --networkid 31745 --gasprice '1' --port 30313 --rpc --rpcaddr '0.0.0.0' --rpcport 8502 --rpcapi 'personal,db,eth,net,web3,txpool,miner,dpos'  --bootnodes 'enode://e37fabfbf0744a934909602f2f8a7f3669fee10f7508c12d4524a051efa4aecec60fcb314e697f4f5ffcec6ea3859f03a6de66e20906353016fdff4d2b20768a@127.0.0.1:0?discport=30301' --allow-insecure-unlock --unlock 8dd4fcd1244431c009ab19dfcaad45808af0b5d0
+geth --datadir node2 --networkid 31745 --gasprice '1' --port 30313 --rpc --rpcaddr '0.0.0.0' --rpcport 8502 --rpcapi 'personal,db,eth,net,web3,txpool,miner,dpos' --nat extip:127.0.0.1  --bootnodes 'enode://e37fabfbf0744a934909602f2f8a7f3669fee10f7508c12d4524a051efa4aecec60fcb314e697f4f5ffcec6ea3859f03a6de66e20906353016fdff4d2b20768a@127.0.0.1:0?discport=30301' --allow-insecure-unlock --unlock 8dd4fcd1244431c009ab19dfcaad45808af0b5d0
 ```
 
 ```sh
-geth --datadir node3 --networkid 31745 --gasprice '1' --port 30315 --rpc --rpcaddr '0.0.0.0' --rpcport 8504 --rpcapi 'personal,db,eth,net,web3,txpool,miner,dpos'  --bootnodes 'enode://e37fabfbf0744a934909602f2f8a7f3669fee10f7508c12d4524a051efa4aecec60fcb314e697f4f5ffcec6ea3859f03a6de66e20906353016fdff4d2b20768a@127.0.0.1:0?discport=30301' --allow-insecure-unlock --unlock f35556fef87d70f23dc42b948baa15d4df6b1223
+geth --datadir node3 --networkid 31745 --gasprice '1' --port 30315 --rpc --rpcaddr '0.0.0.0' --rpcport 8504 --rpcapi 'personal,db,eth,net,web3,txpool,miner,dpos' --nat extip:127.0.0.1  --bootnodes 'enode://e37fabfbf0744a934909602f2f8a7f3669fee10f7508c12d4524a051efa4aecec60fcb314e697f4f5ffcec6ea3859f03a6de66e20906353016fdff4d2b20768a@127.0.0.1:0?discport=30301' --allow-insecure-unlock --unlock f35556fef87d70f23dc42b948baa15d4df6b1223
 ```
 
 ### 发送转账交易

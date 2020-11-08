@@ -2,9 +2,10 @@
 Dpos Go Ethereum is a project base on [go-ethereum](https://github.com/ethereum/go-ethereum). It's a product when I have learning go-ethereum.
 Up to now, I write a Dpos consensus algorithm. I use header extra to wrap Dpos related information. Because nlp cannot encode complex type, therefore I 
 chose json struct. Although it's work, but it not the best idea. 
-After finish this target, my next step is to try to modify EVM for supporting Dpos vote. If you have any awesome idea, I love to hear it.
-
-这个项目基于[go-ethereum-1.9.8](https://github.com/ethereum/go-ethereum/tree/v1.9.8)，实现dpos算法，引入投票来选取候选人，有关的Dpos信息存在区块Header的Extra字段，利用其Token来投票，就是你有多少Eth，就可以投多少票，投票后扣除相应帐号的Eth，经过一个Epoch，候选人重新从投票结果中产生。项目正在完善中，以后期望通过修改虚拟机，修改让Eth成为投票资源，类似[xuperchain](https://github.com/xuperchain/xuperchain)，项目还有很多不足之处，请多多指教和欢迎参与。
+After finish this target, my next step is to try to modify EVM for supporting Dpos vote. If you have any awesome idea, I love to hear i
+这个项目基于[go-ethereum-1.9.8](https://github.com/ethereum/go-ethereum/tree/v1.9.8)，实现dpos算法，项目参考了以太坊项目的POA算法和[GTTC](https://github.com/TTCECO/gttc)
+项目的Dpos算法，引入投票来选取候选人，有关的Dpos信息存在区块Header的Extra字段，利用其Token来投票，就是你有多少Eth，就可以投多少票，投票后扣除相应帐号的Eth，
+经过一个Epoch，候选人重新从投票结果中产生。项目正在完善中，以后期望通过修改虚拟机，修改让Eth成为投票资源，类似[xuperchain](https://github.com/xuperchain/xuperchain)，项目还有很多不足之处，请多多指教和欢迎参与。
 
 ## 部署流程
 
@@ -108,5 +109,23 @@ geth --datadir node3 --networkid 31745 --gasprice '1' --port 30315 --rpc --rpcad
 ```sh
 eth.sendTransaction({from:eth.accounts[0],to:eth.accounts[0], data:web3.toHex("vote:1000000")});
 eth.sendTransaction({from:eth.accounts[0],to:eth.accounts[0], data:web3.toHex("cancel")})
+```
+
+### 查询
+#### 查询某个区块快照
+```
+dpos.getSnapshot(blockNumber)
+```
+#### 查询某个候选人得票
+```
+dpos.getCandidateVote(blockNumber, candidateAddress)
+```
+#### 查询某个用户投票情况
+```
+dpos.GetVote(blockNumber, address)
+```
+#### 查询所有候选人
+```
+dpos.GetSingers(blockNumber)
 ```
 

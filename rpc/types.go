@@ -28,6 +28,7 @@ import (
 )
 
 // API describes the set of methods offered over the RPC interface
+// API 描述一个RPC接口集合
 type API struct {
 	Namespace string      // namespace under which the rpc methods of Service are exposed
 	Version   string      // api version for DApp's
@@ -44,6 +45,7 @@ type Error interface {
 // ServerCodec implements reading, parsing and writing RPC messages for the server side of
 // a RPC session. Implementations must be go-routine safe since the codec can be called in
 // multiple go-routines concurrently.
+// ServerCodec 实现了一个RPC 连接的读、解析、写消息所有方法，且多协程并发安全。codec 编码译码器
 type ServerCodec interface {
 	readBatch() (msgs []*jsonrpcMessage, isBatch bool, err error)
 	close()
@@ -52,6 +54,7 @@ type ServerCodec interface {
 
 // jsonWriter can write JSON messages to its underlying connection.
 // Implementations must be safe for concurrent use.
+// jsonWrite 实现了写入当前它当前的连接，且也是必需多协程并发安全
 type jsonWriter interface {
 	writeJSON(context.Context, interface{}) error
 	// Closed returns a channel which is closed when the connection is closed.
@@ -62,6 +65,7 @@ type jsonWriter interface {
 
 type BlockNumber int64
 
+// 标识RPC要获取的区块类型
 const (
 	PendingBlockNumber  = BlockNumber(-2)
 	LatestBlockNumber   = BlockNumber(-1)
@@ -74,6 +78,10 @@ const (
 // Returned errors:
 // - an invalid block number error when the given argument isn't a known strings
 // - an out of range error when the given block number is either too little or too large
+// 将blockNumber字符串转换成int64
+// 传过来的【例子】
+//  {"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["earliest",false],"id":1} 或
+//  {"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["0x4d1",false],"id":1}
 func (bn *BlockNumber) UnmarshalJSON(data []byte) error {
 	input := strings.TrimSpace(string(data))
 	if len(input) >= 2 && input[0] == '"' && input[len(input)-1] == '"' {
@@ -91,7 +99,7 @@ func (bn *BlockNumber) UnmarshalJSON(data []byte) error {
 		*bn = PendingBlockNumber
 		return nil
 	}
-
+	// input必需是0x开头
 	blckNum, err := hexutil.DecodeUint64(input)
 	if err != nil {
 		return err
@@ -107,12 +115,14 @@ func (bn BlockNumber) Int64() int64 {
 	return (int64)(bn)
 }
 
+// BlockNumberOrHash包含区块号或hash
 type BlockNumberOrHash struct {
 	BlockNumber      *BlockNumber `json:"blockNumber,omitempty"`
 	BlockHash        *common.Hash `json:"blockHash,omitempty"`
 	RequireCanonical bool         `json:"requireCanonical,omitempty"`
 }
 
+// 和BlockNumber的UnmarshalJSON不同在于增加了对input为hash的可能性判断
 func (bnh *BlockNumberOrHash) UnmarshalJSON(data []byte) error {
 	type erased BlockNumberOrHash
 	e := erased{}

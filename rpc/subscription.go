@@ -32,6 +32,10 @@ import (
 	"time"
 )
 
+// 订阅只支持长连接，如Websocket or IPC,
+// 【IPC】nc -U geth.ipc
+//  示例：
+//	【订阅新区块头】{"id": 1, "method": "eth_subscribe", "params": ["newHeads"]}
 var (
 	// ErrNotificationsUnsupported is returned when the connection doesn't support notifications
 	ErrNotificationsUnsupported = errors.New("notifications not supported")
@@ -87,6 +91,8 @@ func NotifierFromContext(ctx context.Context) (*Notifier, bool) {
 
 // Notifier is tied to a RPC connection that supports subscriptions.
 // Server callbacks use the notifier to send notifications.
+// Notifier依附于一个RPC连接和一个订阅，给订阅者发送通知
+// 一个连接可以对应多个Notifier
 type Notifier struct {
 	h         *handler
 	namespace string
@@ -156,6 +162,7 @@ func (n *Notifier) takeSubscription() *Subscription {
 // acticate is called after the subscription ID was sent to client. Notifications are
 // buffered before activation. This prevents notifications being sent to the client before
 // the subscription ID is sent to the client.
+// activate 在activation之前会将通知放入缓冲，待客户端收到订阅ID（是一个bytes字符串)后，再将通知发给客户端
 func (n *Notifier) activate() error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -181,6 +188,10 @@ func (n *Notifier) send(sub *Subscription, data json.RawMessage) error {
 
 // A Subscription is created by a notifier and tight to that notifier. The client can use
 // this subscription to wait for an unsubscribe request for the client, see Err().
+// 订阅由ID唯一识别，取消订阅只要提供ID调用 *_unsubscribe即可
+// 【订阅】{"id": 1, "method": "eth_subscribe", "params": ["newHeads"]}
+//	【订阅返回】{"jsonrpc":"2.0","id":1,"result":"0xb48fdb7e7cb0225248c81c039e419603"}
+// 【取消订阅】{"id": 1, "method": "eth_unsubscribe", "params": ["0xb48fdb7e7cb0225248c81c039e419603"]}
 type Subscription struct {
 	ID        ID
 	namespace string

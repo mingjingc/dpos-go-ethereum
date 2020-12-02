@@ -28,8 +28,8 @@ type Snapshot struct {
 	Signers  map[common.Address]struct{} `json:"Signers"` // Set of authorized Signers at this moment
 	Recents  map[uint64]common.Address   `json:"recents"` // Set of recent Signers for spam protections
 
-	CandidateTally map[common.Address]*big.Int `json:"candidate_tally"`
-	Votes          map[common.Address]*Vote    `json:"Votes"`
+	CandidateTally map[common.Address]*big.Int `json:"candidate_tally"` // 候选人总票数
+	Votes          map[common.Address]*Vote    `json:"Votes"`           // 用户投票
 }
 
 func newSnapshot(config *params.DposConfig, sigcache *lru.ARCCache, number uint64, hash common.Hash, signers map[common.Address]struct{}) *Snapshot {

@@ -73,6 +73,7 @@ func (msg *jsonrpcMessage) hasValidID() bool {
 	return len(msg.ID) > 0 && msg.ID[0] != '{' && msg.ID[0] != '['
 }
 
+// {"id": 1, "method": "eth_subscribe", "params": ["newHeads"]}
 func (msg *jsonrpcMessage) isSubscribe() bool {
 	return strings.HasSuffix(msg.Method, subscribeMethodSuffix)
 }
@@ -97,6 +98,7 @@ func (msg *jsonrpcMessage) errorResponse(err error) *jsonrpcMessage {
 	return resp
 }
 
+// 组装返回信息，{"jsonrpc":"2.0","id":1,"result":resultContent}
 func (msg *jsonrpcMessage) response(result interface{}) *jsonrpcMessage {
 	enc, err := json.Marshal(result)
 	if err != nil {
@@ -210,6 +212,7 @@ func (c *jsonCodec) writeJSON(ctx context.Context, v interface{}) error {
 	defer c.encMu.Unlock()
 
 	deadline, ok := ctx.Deadline()
+	// 限制解析时间
 	if !ok {
 		deadline = time.Now().Add(defaultWriteTimeout)
 	}
@@ -313,6 +316,7 @@ func parseArgumentArray(dec *json.Decoder, types []reflect.Type) ([]reflect.Valu
 }
 
 // parseSubscriptionName extracts the subscription name from an encoded argument array.
+// 订阅的方法为json数组第一个元素
 func parseSubscriptionName(rawArgs json.RawMessage) (string, error) {
 	dec := json.NewDecoder(bytes.NewReader(rawArgs))
 	if tok, _ := dec.Token(); tok != json.Delim('[') {
@@ -325,3 +329,15 @@ func parseSubscriptionName(rawArgs json.RawMessage) (string, error) {
 	}
 	return method, nil
 }
+
+// dec := json.NewDecoder(strings.NewReader("[1,\"hello\"]"))
+// tk, err := dec.Token()
+// for ; err != io.EOF; tk, err = dec.Token() {
+// 	fmt.Println(tk) //依次打印出 [, 1, hello, ]
+// }
+
+//dec := json.NewDecoder(strings.NewReader("{\"a\":1}"))
+//tk, err := dec.Token()
+//for ; err != io.EOF && tk != nil; tk, err = dec.Token() {
+//	fmt.Println(tk) //依次打印出 {, a, 1, }
+//}

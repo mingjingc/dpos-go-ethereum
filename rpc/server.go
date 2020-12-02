@@ -42,10 +42,13 @@ const (
 
 // Server is an RPC server.
 type Server struct {
+	// 记录所有注册的方法和类
 	services serviceRegistry
 	idgen    func() ID
 	run      int32
-	codecs   mapset.Set
+	// 存储client连接，目前已知的只有通过geth.ipc文件的连接
+	// 目前只有用于主动关闭与客户端连接
+	codecs mapset.Set
 }
 
 // NewServer creates a new server instance with no registered handlers.
@@ -62,7 +65,9 @@ func NewServer() *Server {
 // methods on the given receiver match the criteria to be either a RPC method or a
 // subscription an error is returned. Otherwise a new service is created and added to the
 // service collection this server provides to clients.
+// 注册RPC服务
 func (s *Server) RegisterName(name string, receiver interface{}) error {
+	// receiver就是一个对象，比如 internal/ethapi/api.go PublicBlockChainAPI，PublicBlockChainAPI需要注册的方法要遵循一定规则
 	return s.services.registerName(name, receiver)
 }
 
@@ -91,7 +96,9 @@ func (s *Server) ServeCodec(codec ServerCodec, options CodecOption) {
 // serveSingleRequest reads and processes a single RPC request from the given codec. This
 // is used to serve HTTP connections. Subscriptions and reverse calls are not allowed in
 // this mode.
+// 已知HTTP调用，不用长连接
 func (s *Server) serveSingleRequest(ctx context.Context, codec ServerCodec) {
+
 	// Don't serve if server is stopped.
 	if atomic.LoadInt32(&s.run) == 0 {
 		return

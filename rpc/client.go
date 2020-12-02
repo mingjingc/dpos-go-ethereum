@@ -530,12 +530,14 @@ func (c *Client) dispatch(codec ServerCodec) {
 		close(c.closing)
 		if reading {
 			conn.close(ErrClientQuit, nil)
+			// 连接已关闭，所以丢弃读
 			c.drainRead()
 		}
 		close(c.didClose)
 	}()
 
 	// Spawn the initial read loop.
+	// 启动死循环读取rpc请求
 	go c.read(codec)
 
 	for {

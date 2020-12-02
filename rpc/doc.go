@@ -24,7 +24,7 @@ them visible as 'services'. Exported methods that follow specific conventions ca
 called remotely. It also has support for the publish/subscribe pattern.
 
 RPC Methods
-
+RPC的方法规则
 Methods that satisfy the following criteria are made available for remote access:
 
  - method must be exported
@@ -40,7 +40,7 @@ back to the client. Otherwise the returned integer is sent back to the client.
 Optional arguments are supported by accepting pointer values as arguments. E.g. if we want
 to do the addition in an optional finite field we can accept a mod argument as pointer
 value.
-
+// 通过指针为nil来实现可选参数
  func (s *CalcService) Add(a, b int, mod *int) (int, error)
 
 This RPC method can be called with 2 integers and a null value as third argument. In that

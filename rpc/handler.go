@@ -139,6 +139,7 @@ func (h *handler) handleMsg(msg *jsonrpcMessage) {
 		answer := h.handleCallMsg(cp, msg)
 		h.addSubscriptions(cp.notifiers)
 		if answer != nil {
+			// 返回
 			h.conn.writeJSON(cp.ctx, answer)
 		}
 		for _, n := range cp.notifiers {
@@ -287,6 +288,9 @@ func (h *handler) handleResponse(msg *jsonrpcMessage) {
 }
 
 // handleCallMsg executes a call message and returns the answer.
+// 【传入message示例】'{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["0x4d1ffffff",false],"id":1}'
+// 方法由 rpc服务namespace+方法名组成
+// 返回message: {"jsonrpc":"2.0","id":1,"result":resultContent}
 func (h *handler) handleCallMsg(ctx *callProc, msg *jsonrpcMessage) *jsonrpcMessage {
 	start := time.Now()
 	switch {
@@ -310,7 +314,13 @@ func (h *handler) handleCallMsg(ctx *callProc, msg *jsonrpcMessage) *jsonrpcMess
 }
 
 // handleCall processes method calls.
+// handleCall 处理rpc函数调用
+// 【传入message示例】'{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["0x4d1ffffff",false],"id":1}'
+// 方法由 rpc服务namespace+方法名组成
+// 返回message: {"jsonrpc":"2.0","id":1,"result":resultContent}
 func (h *handler) handleCall(cp *callProc, msg *jsonrpcMessage) *jsonrpcMessage {
+	// 订阅和取消订阅，方法固定 https://geth.ethereum.org/docs/rpc/pubsub
+	// 【例子】{"id": 1, "method": "eth_subscribe", "params": ["newHeads"]}，以subscribe结尾的method为订阅消息
 	if msg.isSubscribe() {
 		return h.handleSubscribe(cp, msg)
 	}
@@ -332,23 +342,31 @@ func (h *handler) handleCall(cp *callProc, msg *jsonrpcMessage) *jsonrpcMessage 
 }
 
 // handleSubscribe processes *_subscribe method calls.
+// handleSubscribe 处理 *_subscribe 请求，params为处理订阅的具体方法
+// 【例1】{"id": 1, "method": "eth_subscribe", "params": ["newHeads"]}
+// 【例2】{"id": 1, "method": "eth_subscribe", "params": ["newPendingTransactions"]}
 func (h *handler) handleSubscribe(cp *callProc, msg *jsonrpcMessage) *jsonrpcMessage {
 	if !h.allowSubscribe {
 		return msg.errorResponse(ErrNotificationsUnsupported)
 	}
 
 	// Subscription method name is first argument.
+	// 获取处理订阅的方法名
 	name, err := parseSubscriptionName(msg.Params)
 	if err != nil {
 		return msg.errorResponse(&invalidParamsError{err.Error()})
 	}
-	namespace := msg.namespace()
-	callb := h.reg.subscription(namespace, name)
+	namespace := msg.namespace() // 如eth、admin、net
+	// 如：eth + newHeads
+	//    获取newHeads func(*filters.PublicFilterAPI, context.Context) (*rpc.Subscription, error)
+	// 订阅处理方法在 eth/backend.go APIs()传入，为 eth/filters/api.go PublicFilterAPI
+	callb := h.reg.subscription(namespace, name) // 获取对应函数的订阅回调函数
 	if callb == nil {
 		return msg.errorResponse(&subscriptionNotFoundError{namespace, name})
 	}
 
 	// Parse subscription name arg too, but remove it before calling the callback.
+	// 比如，newHeads, 无输入，callb.argTypes为空
 	argTypes := append([]reflect.Type{stringType}, callb.argTypes...)
 	args, err := parsePositionalArguments(msg.Params, argTypes)
 	if err != nil {
@@ -365,6 +383,7 @@ func (h *handler) handleSubscribe(cp *callProc, msg *jsonrpcMessage) *jsonrpcMes
 }
 
 // runMethod runs the Go callback for an RPC method.
+// 运行rpc方法，将函数运行的结果组装 response
 func (h *handler) runMethod(ctx context.Context, msg *jsonrpcMessage, callb *callback, args []reflect.Value) *jsonrpcMessage {
 	result, err := callb.call(ctx, msg.Method, args)
 	if err != nil {
@@ -374,6 +393,11 @@ func (h *handler) runMethod(ctx context.Context, msg *jsonrpcMessage, callb *cal
 }
 
 // unsubscribe is the callback function for all *_unsubscribe calls.
+// unsubscribe 负责所有 *_unsubscribe 的请求rpc函数
+// 订阅由ID唯一识别，取消订阅只要提供ID调用 *_unsubscribe即可
+// 【订阅】{"id": 1, "method": "eth_subscribe", "params": ["newHeads"]}
+//	【订阅返回】{"jsonrpc":"2.0","id":1,"result":"0xb48fdb7e7cb0225248c81c039e419603"}
+// 【取消订阅】{"id": 1, "method": "eth_unsubscribe", "params": ["0xb48fdb7e7cb0225248c81c039e419603"]}
 func (h *handler) unsubscribe(ctx context.Context, id ID) (bool, error) {
 	h.subLock.Lock()
 	defer h.subLock.Unlock()

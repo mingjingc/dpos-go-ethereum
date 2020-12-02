@@ -17,11 +17,13 @@
 package rpc
 
 import (
+	"fmt"
 	"net"
 
 	"github.com/ethereum/go-ethereum/log"
 )
 
+// 三种提供RPC服务的方式，HTTP、Websocket、IPC（我们使用的ipc文件进行连接）
 // StartHTTPEndpoint starts the HTTP RPC endpoint, configured with cors/vhosts/modules
 func StartHTTPEndpoint(endpoint string, apis []API, modules []string, cors []string, vhosts []string, timeouts HTTPTimeouts) (net.Listener, *Server, error) {
 	// Generate the whitelist based on the allowed modules
@@ -83,7 +85,9 @@ func StartWSEndpoint(endpoint string, apis []API, modules []string, wsOrigins []
 }
 
 // StartIPCEndpoint starts an IPC endpoint.
+// geth attach ipc/rpc地址
 func StartIPCEndpoint(ipcEndpoint string, apis []API) (net.Listener, *Server, error) {
+	fmt.Println("启动IPC服务")
 	// Register all the APIs exposed by the services.
 	handler := NewServer()
 	for _, api := range apis {
@@ -97,6 +101,8 @@ func StartIPCEndpoint(ipcEndpoint string, apis []API) (net.Listener, *Server, er
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// listener addr： geth.ipc
 	go handler.ServeListener(listener)
 	return listener, handler, nil
 }

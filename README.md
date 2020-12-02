@@ -7,6 +7,9 @@ After finish this target, my next step is to try to modify EVM for supporting Dp
 项目的Dpos算法，引入投票来选取候选人，有关的Dpos信息存在区块Header的Extra字段，利用其Token来投票，就是你有多少Eth，就可以投多少票，投票后扣除相应帐号的Eth，
 经过一个Epoch，候选人重新从投票结果中产生。项目正在完善中，以后期望通过修改虚拟机，修改让Eth成为投票资源，类似[xuperchain](https://github.com/xuperchain/xuperchain)，项目还有很多不足之处，请多多指教和欢迎参与。
 
+## 存在的问题
+经常遇到节点同步停止，无法同步其他节点新的区块，无缘无故由恢复正常运行
+
 ## 部署流程
 
 ###  生成创世配置文件

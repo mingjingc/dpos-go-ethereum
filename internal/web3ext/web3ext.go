@@ -126,7 +126,24 @@ web3._extend({
 			name: 'getSnapshot',
 			call: 'dpos_getSnapshot',
 			params: 1,
-			inputFormatter: [web3._extend.utils.fromDecimal]
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+
+		new web3._extend.Method({
+			name: 'getCandidateVote',
+			call: 'dpos_getCandidateVote',
+			params: 2
+		}),
+
+		new web3._extend.Method({
+			name: 'getVote',
+			call: 'dpos_getVote',
+			params: 2
+		}),
+		new web3._extend.Method({
+			name: 'getSingers',
+			call: 'dpos_getSingers',
+			params: 1
 		}),
 	]
 });

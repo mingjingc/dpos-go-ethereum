@@ -44,7 +44,8 @@ func (api *API) GetCandidateVote(number *rpc.BlockNumber, candidate common.Addre
 	return snp.CandidateTally[candidate], nil
 }
 
-func (api *API) GetVote(number *rpc.BlockNumber, candidate common.Address) (*Vote, error) {
+// 获取某个用户投票情况
+func (api *API) GetVote(number *rpc.BlockNumber, from common.Address) (*Vote, error) {
 	var header *types.Header
 	if number == nil || *number == rpc.LatestBlockNumber {
 		header = api.chain.CurrentHeader()
@@ -58,7 +59,7 @@ func (api *API) GetVote(number *rpc.BlockNumber, candidate common.Address) (*Vot
 	if err != nil {
 		return nil, err
 	}
-	return snp.Votes[candidate], nil
+	return snp.Votes[from], nil
 }
 
 func (api *API) GetSingers(number *rpc.BlockNumber) ([]common.Address, error) {

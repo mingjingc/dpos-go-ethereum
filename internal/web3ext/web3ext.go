@@ -132,18 +132,21 @@ web3._extend({
 		new web3._extend.Method({
 			name: 'getCandidateVote',
 			call: 'dpos_getCandidateVote',
-			params: 2
+			params: 2,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter, web3._extend.formatters.inputAddressFormatter]
 		}),
 
 		new web3._extend.Method({
 			name: 'getVote',
 			call: 'dpos_getVote',
-			params: 2
+			params: 2,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter, web3._extend.formatters.inputAddressFormatter]
 		}),
 		new web3._extend.Method({
 			name: 'getSingers',
 			call: 'dpos_getSingers',
-			params: 1
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
 		}),
 	]
 });

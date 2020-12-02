@@ -27,6 +27,7 @@ func (api *API) GetSnapshot(number *rpc.BlockNumber) (*Snapshot, error) {
 	return api.dpos.snapshot(api.chain, header.Number.Uint64(), header.Hash(), nil)
 }
 
+// 获取某个候选者的票
 func (api *API) GetCandidateVote(number *rpc.BlockNumber, candidate common.Address) (*big.Int, error) {
 	var header *types.Header
 	if number == nil || *number == rpc.LatestBlockNumber {

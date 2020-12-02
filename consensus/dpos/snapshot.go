@@ -209,6 +209,10 @@ func (s *Snapshot) getNewSignersAfterAEpoch() map[common.Address]struct{} {
 	if len(candidates) > maxSignerNumber {
 		candidates = candidates[:maxSignerNumber]
 	}
+	// 如果没有投票，还是使用原来的验证者
+	if len(candidates) == 0 {
+		return s.Signers
+	}
 	for _, candidate := range candidates {
 		newSigners[candidate.address] = struct{}{}
 	}

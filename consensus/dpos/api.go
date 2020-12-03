@@ -63,7 +63,7 @@ func (api *API) GetVote(number *rpc.BlockNumber, from common.Address) (*Vote, er
 	return snp.Votes[from], nil
 }
 
-func (api *API) GetSingers(number *rpc.BlockNumber) ([]common.Address, error) {
+func (api *API) GetSigners(number *rpc.BlockNumber) ([]common.Address, error) {
 	var header *types.Header
 	if number == nil || *number == rpc.LatestBlockNumber {
 		header = api.chain.CurrentHeader()

@@ -143,8 +143,8 @@ web3._extend({
 			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter, web3._extend.formatters.inputAddressFormatter]
 		}),
 		new web3._extend.Method({
-			name: 'getSingers',
-			call: 'dpos_getSingers',
+			name: 'getSigners',
+			call: 'dpos_getSigners',
 			params: 1,
 			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
 		}),

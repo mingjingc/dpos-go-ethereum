@@ -40,6 +40,15 @@ const (
 	inmemorySignatures = 4096 // Number of recent block signatures to keep in memory
 )
 
+var (
+	// 在不到21个节点参与投票时，可以用baseSigner作为填充，保证系统正常运行
+	BASE_SIGNERS = []common.Address{
+		common.HexToAddress("8dd4fcd1244431c009ab19dfcaad45808af0b5d0"),
+		common.HexToAddress("002dd817a05983c7371bccd498d8dce6b1910295"),
+		common.HexToAddress("f35556fef87d70f23dc42b948baa15d4df6b1223"),
+	}
+)
+
 // Clique proof-of-authority protocol constants.
 var (
 	epochLength = uint64(30000) // Default number of blocks after which to checkpoint and reset the pending Votes

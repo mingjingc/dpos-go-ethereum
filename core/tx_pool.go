@@ -1060,8 +1060,7 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 	// 需要提升地址，即将改地址的拥有的交易从加入到pending队列
 	var promoteAddrs []common.Address
 	if dirtyAccounts != nil && reset == nil {
-		// 对于reset重置，所有的地址都会被处理，包含了dirtyAccounts
-		// 故这里没必要获取dirtyAccounts作为promoteAddrs
+		// 既然reset，我们没必要再获取dirtyAccounts
 		promoteAddrs = dirtyAccounts.flatten()
 	}
 	pool.mu.Lock()

@@ -1057,8 +1057,11 @@ func (pool *TxPool) scheduleReorgLoop() {
 func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirtyAccounts *accountSet, events map[common.Address]*txSortedMap) {
 	defer close(done)
 
+	// 需要提升地址，即将改地址的拥有的交易从加入到pending队列
 	var promoteAddrs []common.Address
-	if dirtyAccounts != nil {
+	if dirtyAccounts != nil && reset == nil {
+		// 对于reset重置，所有的地址都会被处理，包含了dirtyAccounts
+		// 故这里没必要获取dirtyAccounts作为promoteAddrs
 		promoteAddrs = dirtyAccounts.flatten()
 	}
 	pool.mu.Lock()
@@ -1074,7 +1077,7 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 			}
 		}
 		// Reset needs promote for all addresses
-		promoteAddrs = promoteAddrs[:0]
+		promoteAddrs = make([]common.Address, 0, len(pool.queue))
 		for addr := range pool.queue {
 			promoteAddrs = append(promoteAddrs, addr)
 		}

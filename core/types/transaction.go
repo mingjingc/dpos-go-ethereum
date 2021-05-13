@@ -22,6 +22,7 @@ import (
 	"io"
 	"math/big"
 	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -56,6 +57,10 @@ var (
 */
 type Transaction struct {
 	data txdata
+	// Time first seen locally
+	// 随机排序会导致有的交易不及时处理，用户会撤出并尝试增加手续费。
+	// 此参数并不会影响共识，也就是说其他矿工可以不遵循
+	time time.Time
 	// caches
 	hash atomic.Value
 	size atomic.Value
@@ -120,7 +125,10 @@ func newTransaction(nonce uint64, to *common.Address, amount *big.Int, gasLimit 
 		d.Price.Set(gasPrice)
 	}
 
-	return &Transaction{data: d}
+	return &Transaction{
+		data: d,
+		time: time.Now(),
+	}
 }
 
 // ChainId returns which chain id this transaction was signed for (if at all)
@@ -319,19 +327,25 @@ func (s TxByNonce) Len() int           { return len(s) }
 func (s TxByNonce) Less(i, j int) bool { return s[i].data.AccountNonce < s[j].data.AccountNonce }
 func (s TxByNonce) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 
-// TxByPrice implements both the sort and the heap interface, making it useful
+// TxByPriceAndTime implements both the sort and the heap interface, making it useful
 // for all at once sorting as well as individually adding and removing elements.
-type TxByPrice Transactions
+type TxByPriceAndTime Transactions
 
-func (s TxByPrice) Len() int           { return len(s) }
-func (s TxByPrice) Less(i, j int) bool { return s[i].data.Price.Cmp(s[j].data.Price) > 0 }
-func (s TxByPrice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s TxByPriceAndTime) Len() int { return len(s) }
+func (s TxByPriceAndTime) Less(i, j int) bool {
+	cmp := s[i].data.Price.Cmp(s[j].data.Price)
+	if cmp == 0 {
+		return s[i].time.Before(s[j].time)
+	}
+	return cmp > 0
+}
+func (s TxByPriceAndTime) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 
-func (s *TxByPrice) Push(x interface{}) {
+func (s *TxByPriceAndTime) Push(x interface{}) {
 	*s = append(*s, x.(*Transaction))
 }
 
-func (s *TxByPrice) Pop() interface{} {
+func (s *TxByPriceAndTime) Pop() interface{} {
 	old := *s
 	n := len(old)
 	x := old[n-1]
@@ -344,7 +358,7 @@ func (s *TxByPrice) Pop() interface{} {
 // entire batches of transactions for non-executable accounts.
 type TransactionsByPriceAndNonce struct {
 	txs    map[common.Address]Transactions // Per account nonce-sorted list of transactions
-	heads  TxByPrice                       // Next transaction for each unique account (price heap)
+	heads  TxByPriceAndTime                // Next transaction for each unique account (price heap)
 	signer Signer                          // Signer for the set of transactions
 }
 
@@ -355,7 +369,7 @@ type TransactionsByPriceAndNonce struct {
 // if after providing it to the constructor.
 func NewTransactionsByPriceAndNonce(signer Signer, txs map[common.Address]Transactions) *TransactionsByPriceAndNonce {
 	// Initialize a price based heap with the head transactions
-	heads := make(TxByPrice, 0, len(txs))
+	heads := make(TxByPriceAndTime, 0, len(txs))
 	for from, accTxs := range txs {
 		heads = append(heads, accTxs[0])
 		// Ensure the sender address is from the signer

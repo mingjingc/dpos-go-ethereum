@@ -317,6 +317,7 @@ func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, 
 //
 // DelegateCall differs from CallCode in the sense that it executes the given address'
 // code with the caller as context and the caller is set to the caller of the caller.
+// msg.sender会是它的caller的msg.sender
 func (evm *EVM) DelegateCall(caller ContractRef, addr common.Address, input []byte, gas uint64) (ret []byte, leftOverGas uint64, err error) {
 	fmt.Println("DelegateCall")
 	if evm.vmConfig.NoRecursion && evm.depth > 0 {

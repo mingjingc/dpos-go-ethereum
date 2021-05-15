@@ -21,7 +21,9 @@ import (
 	"crypto/ecdsa"
 	"encoding/json"
 	"math/big"
+	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -168,6 +170,46 @@ func TestTransactionPriceNonceSort(t *testing.T) {
 			if fromi != fromNext && txi.GasPrice().Cmp(next.GasPrice()) < 0 {
 				t.Errorf("invalid gasprice ordering: tx #%d (A=%x P=%v) < tx #%d (A=%x P=%v)", i, fromi[:4], txi.GasPrice(), i+1, fromNext[:4], next.GasPrice())
 			}
+		}
+	}
+}
+
+// 测试多个具有相同Gas Price交易是否先处理先收到的交易
+func TestTransactionTimeSort(t *testing.T) {
+	keys := make([]*ecdsa.PrivateKey, 25)
+	for i := 0; i < len(keys); i++ {
+		keys[i], _ = crypto.GenerateKey()
+	}
+	singer := HomesteadSigner{}
+	groups := map[common.Address]Transactions{}
+	// 创建相同的Gas Price但不同时间的交易
+	for _, key := range keys {
+		addr := crypto.PubkeyToAddress(key.PublicKey)
+		tx, _ := SignTx(NewTransaction(0, common.Address{}, big.NewInt(100), 100, big.NewInt(1), nil), singer, key)
+		groups[addr] = append(groups[addr], tx)
+		// 模拟收到交易先后顺序
+		time.Sleep(time.Duration(rand.Intn(5)) * time.Millisecond)
+	}
+	//Sort the transactions and cross check the nonce ordering
+	txSet := NewTransactionsByPriceAndNonce(singer, groups)
+
+	txs := Transactions{}
+	for tx := txSet.Peek(); tx != nil; tx = txSet.Peek() {
+		txs = append(txs, tx)
+		txSet.Shift()
+	}
+
+	if len(txs) != 25 {
+		t.Errorf("expected %d transactions, found %d", 25, len(txs))
+	}
+
+	for i, tx := range txs {
+		if i == len(txs)-1 {
+			break
+		}
+		next := txs[i+1]
+		if tx.GasPrice().Cmp(next.GasPrice()) == 0 && tx.time.After(next.time) {
+			t.Errorf("invalid recieved time order")
 		}
 	}
 }

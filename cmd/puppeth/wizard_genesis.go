@@ -30,7 +30,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus/dpos"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
@@ -60,7 +59,6 @@ func (w *wizard) makeGenesis() {
 	fmt.Println("Which consensus engine to use? (default = clique)")
 	fmt.Println(" 1. Ethash - proof-of-work")
 	fmt.Println(" 2. Clique - proof-of-authority")
-	fmt.Println(" 3. Dpos - delegated-proof-of-stake")
 
 	choice := w.read()
 	switch {
@@ -106,35 +104,6 @@ func (w *wizard) makeGenesis() {
 		for i, signer := range signers {
 			copy(genesis.ExtraData[32+i*common.AddressLength:], signer[:])
 		}
-	case choice == "3":
-		genesis.Difficulty = big.NewInt(1)
-		genesis.Config.Dpos = &params.DposConfig{
-			Period: 5,
-			Epoch:  30000,
-		}
-		fmt.Println("Which accounts are allowed to seal? (mandatory at least one)")
-
-		var signers []common.Address
-		for {
-			if address := w.readAddress(); address != nil {
-				signers = append(signers, *address)
-				continue
-			}
-			if len(signers) > 0 {
-				break
-			}
-		}
-		dposData := dpos.DposData{
-			Signers:     map[common.Address]struct{}{},
-			Votes:       map[common.Address]dpos.Vote{},
-			CancelVotes: map[common.Address]dpos.Vote{},
-		}
-		for _, addr := range signers {
-			dposData.Signers[addr] = struct{}{}
-		}
-		dposDataRlp := dpos.DposDataEncode(dposData)
-		genesis.ExtraData = make([]byte, 32+len(dposDataRlp)+65)
-		copy(genesis.ExtraData[32:], dposDataRlp)
 
 	default:
 		log.Crit("Invalid consensus engine choice", "choice", choice)
@@ -210,7 +179,7 @@ func (w *wizard) importGenesis() {
 	// Parse the genesis file and inject it successful
 	var genesis core.Genesis
 	if err := json.NewDecoder(reader).Decode(&genesis); err != nil {
-		log.Error("Invalid genesis spec: %v", err)
+		log.Error("Invalid genesis spec", "err", err)
 		return
 	}
 	log.Info("Imported genesis block")
@@ -266,6 +235,14 @@ func (w *wizard) manageGenesis() {
 		fmt.Printf("Which block should Istanbul come into effect? (default = %v)\n", w.conf.Genesis.Config.IstanbulBlock)
 		w.conf.Genesis.Config.IstanbulBlock = w.readDefaultBigInt(w.conf.Genesis.Config.IstanbulBlock)
 
+		fmt.Println()
+		fmt.Printf("Which block should Berlin come into effect? (default = %v)\n", w.conf.Genesis.Config.BerlinBlock)
+		w.conf.Genesis.Config.BerlinBlock = w.readDefaultBigInt(w.conf.Genesis.Config.BerlinBlock)
+
+		fmt.Println()
+		fmt.Printf("Which block should YOLOv3 come into effect? (default = %v)\n", w.conf.Genesis.Config.YoloV3Block)
+		w.conf.Genesis.Config.YoloV3Block = w.readDefaultBigInt(w.conf.Genesis.Config.YoloV3Block)
+
 		out, _ := json.MarshalIndent(w.conf.Genesis.Config, "", "  ")
 		fmt.Printf("Chain configuration updated:\n\n%s\n", out)
 
@@ -286,7 +263,7 @@ func (w *wizard) manageGenesis() {
 
 		// Export the native genesis spec used by puppeth and Geth
 		gethJson := filepath.Join(folder, fmt.Sprintf("%s.json", w.network))
-		if err := ioutil.WriteFile((gethJson), out, 0644); err != nil {
+		if err := ioutil.WriteFile(gethJson, out, 0644); err != nil {
 			log.Error("Failed to save genesis file", "err", err)
 			return
 		}

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	"math/rand"
 	"reflect"
 	"strings"
 	"sync"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/params"
@@ -189,8 +187,8 @@ func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, er
 	return signer, nil
 }
 
-func (d *Dpos) Author(header *types.Header) (common.Address, error) {
-	return ecrecover(header, d.signatures)
+func (d *Dpos) VerifySeal(chain consensus.ChainHeaderReader, header *types.Header) error {
+	return d.verifySeal(chain, header, nil)
 }
 
 func (d *Dpos) Authorize(signer common.Address, signFn SignerFn) {
@@ -201,10 +199,7 @@ func (d *Dpos) Authorize(signer common.Address, signFn SignerFn) {
 	d.signFn = signFn
 }
 
-func (d *Dpos) VerifyHeader(chain consensus.ChainReader, header *types.Header, seal bool) error {
-	return d.verifyHeader(chain, header, nil)
-}
-func (d *Dpos) verifyHeader(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
+func (d *Dpos) verifyHeader(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
 	if header == nil {
 		return errUnknownBlock
 	}
@@ -234,7 +229,7 @@ func (d *Dpos) verifyHeader(chain consensus.ChainReader, header *types.Header, p
 
 	return d.verifyCascadingFields(chain, header, parents)
 }
-func (d *Dpos) verifyCascadingFields(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
+func (d *Dpos) verifyCascadingFields(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
 	number := header.Number.Uint64()
 
 	if number == 0 {
@@ -274,7 +269,7 @@ func (d *Dpos) verifyCascadingFields(chain consensus.ChainReader, header *types.
 
 	return d.verifySeal(chain, header, parents)
 }
-func (d *Dpos) verifySeal(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
+func (d *Dpos) verifySeal(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
 	number := header.Number.Uint64()
 	if number == 0 {
 		return errUnknownBlock
@@ -301,268 +296,7 @@ func (d *Dpos) verifySeal(chain consensus.ChainReader, header *types.Header, par
 	return nil
 }
 
-func (d *Dpos) VerifyHeaders(chain consensus.ChainReader, headers []*types.Header, seals []bool) (chan<- struct{}, <-chan error) {
-	abort := make(chan struct{})
-	results := make(chan error, len(headers))
-	go func() {
-		for i, header := range headers {
-			err := d.verifyHeader(chain, header, headers[:i])
-			select {
-			case <-abort:
-				return
-			case results <- err:
-			}
-		}
-	}()
-	return abort, results
-}
-
-func (d *Dpos) VerifyUncles(chain consensus.ChainReader, block *types.Block) error {
-	if len(block.Uncles()) > 0 {
-		return errors.New("uncles not allowed")
-	}
-	return nil
-}
-
-func (d *Dpos) VerifySeal(chain consensus.ChainReader, header *types.Header) error {
-	return d.verifySeal(chain, header, nil)
-}
-
-func (d *Dpos) Prepare(chain consensus.ChainReader, header *types.Header) error {
-	// 准备挖的区块number
-	number := header.Number.Uint64()
-	parent := chain.GetHeader(header.ParentHash, number-1)
-	if parent == nil {
-		return consensus.ErrUnknownAncestor
-	}
-	snap, err := d.snapshot(chain, number-1, parent.Hash(), nil)
-	if err != nil {
-		return err
-	}
-	header.Coinbase = common.Address{}
-	header.Nonce = types.BlockNonce{}
-
-	header.Time = parent.Time + d.config.Period
-	if now := uint64(time.Now().Unix()); header.Time < now {
-		header.Time = now
-	}
-	if len(header.Extra) < extraVanity {
-		header.Extra = append(header.Extra, bytes.Repeat([]byte{0x0}, extraVanity-len(header.Extra))...)
-	}
-	header.Extra = header.Extra[:extraVanity]
-
-	// 计算难度值header.Time这里暂时用不着，
-	header.Difficulty = d.CalcDifficulty(chain, header.Time, parent)
-	header.MixDigest = common.Hash{}
-
-	dposData := DposData{
-		Signers:     map[common.Address]struct{}{},
-		Votes:       map[common.Address]Vote{},
-		CancelVotes: map[common.Address]Vote{},
-	}
-	if number%d.config.Epoch == 0 {
-		dposData.Signers = snap.getNewSignersAfterAEpoch()
-	}
-	header.Extra = append(header.Extra, DposDataEncode(dposData)...)
-	header.Extra = append(header.Extra, make([]byte, extraSeal)...)
-	return nil
-}
-
-func (d *Dpos) Finalize(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
-	uncles []*types.Header) {
-	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
-	header.UncleHash = types.CalcUncleHash(nil)
-
-	dposData := DposData{}
-	// 已经在头部已验证
-	_ = DposDataDecode(header.Extra[extraVanity:len(header.Extra)-extraSeal], &dposData)
-	extraSealBytes := make([]byte, extraSeal)
-	copy(extraSealBytes, header.Extra[len(header.Extra)-extraSeal:])
-	header.Extra = header.Extra[:extraVanity]
-	dposData.Votes, dposData.CancelVotes = d.calVote(chain, header, state, txs)
-	header.Extra = append(header.Extra, DposDataEncode(dposData)...)
-	header.Extra = append(header.Extra, extraSealBytes...)
-
-	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
-}
-
-func (d *Dpos) FinalizeAndAssemble(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
-	uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
-	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
-	header.UncleHash = types.CalcUncleHash(nil)
-
-	dposData := DposData{}
-	err := DposDataDecode(header.Extra[extraVanity:len(header.Extra)-extraSeal], &dposData)
-	extraSealBytes := make([]byte, extraSeal)
-	copy(extraSealBytes, header.Extra[len(header.Extra)-extraSeal:])
-	header.Extra = header.Extra[:extraVanity]
-	if err != nil {
-		return nil, err
-	}
-	dposData.Votes, dposData.CancelVotes = d.calVote(chain, header, state, txs)
-	header.Extra = append(header.Extra, DposDataEncode(dposData)...)
-	header.Extra = append(header.Extra, extraSealBytes...)
-
-	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
-	return types.NewBlock(header, txs, nil, receipts), nil
-}
-
-// when meet a epoch, refund to all accounts. and clean up vote in the snapshot of this block
-func (d *Dpos) cleanUpVote(chain consensus.ChainReader, header *types.Header, state *state.StateDB) {
-	number := header.Number.Uint64()
-	if number == 0 {
-		return
-	}
-	snap, _ := d.snapshot(chain, number-1, header.ParentHash, nil)
-	if snap == nil {
-		return
-	}
-	votes := snap.getVotes()
-	for addr, vote := range votes {
-		state.AddBalance(addr, vote.Tall)
-	}
-}
-
-func (d *Dpos) calVote(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction) (votes map[common.Address]Vote, cancelVotes map[common.Address]Vote) {
-	votes = map[common.Address]Vote{}
-	cancelVotes = map[common.Address]Vote{}
-	number := header.Number.Uint64()
-	var snap *Snapshot
-	if number > 0 {
-		snap, _ = d.snapshot(chain, number-1, header.ParentHash, nil)
-		if snap == nil {
-			return
-		}
-	}
-walk:
-	for _, tx := range txs {
-		sender, _ := types.Sender(types.NewEIP155Signer(tx.ChainId()), tx)
-		voteInfo := strings.Split(string(tx.Data()), ":")
-		if len(voteInfo) == 0 {
-			continue
-		}
-
-		vote := Vote{}
-		switch voteInfo[0] {
-		case "vote":
-			if len(voteInfo) != 2 {
-				continue walk
-			}
-			if number != 0 && snap.hasVoted(sender) {
-				continue walk
-			}
-			tally, ok := big.NewInt(0).SetString(voteInfo[1], 10)
-			if !ok || tally.Cmp(big.NewInt(0)) < 0 {
-				continue walk
-			}
-			vote.Tall = tally
-			if state.GetBalance(sender).Cmp(tally) <= 0 {
-				continue walk
-			}
-			vote.To = *tx.To()
-			votes[sender] = vote
-			log.Info(fmt.Sprintf("vote from: %s, to: %s, tally: %s", sender.Hex(), vote.To.Hex(), vote.Tall.String()))
-			state.SubBalance(sender, tally)
-		case "cancel":
-			if number == 0 || !snap.hasVoted(sender) {
-				continue walk
-			}
-			vote.To = *tx.To()
-			state.AddBalance(sender, snap.getVoteTally(sender))
-			cancelVotes[sender] = vote
-		default:
-			continue walk
-		}
-	}
-	return
-}
-
-func (d *Dpos) Seal(chain consensus.ChainReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
-	header := block.Header()
-
-	number := header.Number.Uint64()
-	if number == 0 {
-		return errUnknownBlock
-	}
-
-	d.lock.Lock()
-	signer, signFn := d.signer, d.signFn
-	d.lock.Unlock()
-
-	snap, err := d.snapshot(chain, number-1, header.ParentHash, nil)
-	if err != nil {
-		return err
-	}
-	if _, ok := snap.Signers[signer]; !ok {
-		return errUnauthorizedSigner
-	}
-	for seen, recent := range snap.Recents {
-		if recent == signer {
-			if limit := uint64(len(snap.Signers)/2 + 1); number < limit || seen > number-limit {
-				log.Info("Signed recently, must wait for others")
-				return nil
-			}
-		}
-	}
-	delay := time.Unix(int64(header.Time), 0).Sub(time.Now())
-	if header.Difficulty.Cmp(diffNoTurn) == 0 {
-		wiggle := time.Duration(len(snap.Signers)/2+1) * 500 * time.Millisecond
-		delay += time.Duration(rand.Int63n(int64(wiggle)))
-
-		log.Trace("Out-of-turn signing requested", "wiggle", common.PrettyDuration(wiggle))
-	}
-
-	sighash, err := signFn(accounts.Account{Address: signer}, accounts.MimetypeClique, DposRLP(header))
-	if err != nil {
-		return err
-	}
-	copy(header.Extra[len(header.Extra)-extraSeal:], sighash)
-	go func() {
-		select {
-		case <-stop:
-			return
-		case <-time.After(delay):
-		}
-		select {
-		case results <- block.WithSeal(header):
-		default:
-			log.Warn("Sealing result is not read by miner", "sealhash", SealHash(header))
-		}
-	}()
-	return nil
-}
-
-func (d *Dpos) SealHash(header *types.Header) common.Hash {
-	return SealHash(header)
-}
-
-func (d *Dpos) CalcDifficulty(chain consensus.ChainReader, time uint64, parent *types.Header) *big.Int {
-	snap, err := d.snapshot(chain, parent.Number.Uint64(), parent.Hash(), nil)
-	if err != nil {
-		return nil
-	}
-	if snap.inturn(snap.Number+1, d.signer) {
-		return diffInTurn
-	}
-	return diffNoTurn
-}
-
-// APIs 共识引擎提供的RPC接口
-func (d *Dpos) APIs(chain consensus.ChainReader) []rpc.API {
-	return []rpc.API{{
-		Namespace: "dpos",
-		Version:   "1.0",
-		Service:   &API{chain: chain, dpos: d},
-		Public:    false,
-	}}
-}
-
-// Close 用于结束共识引擎的后台程序, dpos暂时不需要
-func (d *Dpos) Close() error {
-	return nil
-}
-
-func (d *Dpos) snapshot(chain consensus.ChainReader, number uint64, hash common.Hash, parents []*types.Header) (*Snapshot, error) {
+func (d *Dpos) snapshot(chain consensus.ChainHeaderReader, number uint64, hash common.Hash, parents []*types.Header) (*Snapshot, error) {
 	// Search for a snapshot in memory or on disk for checkpoints
 	var (
 		headers []*types.Header
@@ -639,6 +373,76 @@ func (d *Dpos) snapshot(chain consensus.ChainReader, number uint64, hash common.
 		log.Trace("Stored voting snapshot to disk", "number", snap.Number, "hash", snap.Hash)
 	}
 	return snap, err
+}
+
+// when meet a epoch, refund to all accounts. and clean up vote in the snapshot of this block
+func (d *Dpos) cleanUpVote(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB) {
+	number := header.Number.Uint64()
+	if number == 0 {
+		return
+	}
+	snap, _ := d.snapshot(chain, number-1, header.ParentHash, nil)
+	if snap == nil {
+		return
+	}
+	votes := snap.getVotes()
+	for addr, vote := range votes {
+		state.AddBalance(addr, vote.Tall)
+	}
+}
+
+func (d *Dpos) calVote(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction) (votes map[common.Address]Vote, cancelVotes map[common.Address]Vote) {
+	votes = map[common.Address]Vote{}
+	cancelVotes = map[common.Address]Vote{}
+	number := header.Number.Uint64()
+	var snap *Snapshot
+	if number > 0 {
+		snap, _ = d.snapshot(chain, number-1, header.ParentHash, nil)
+		if snap == nil {
+			return
+		}
+	}
+walk:
+	for _, tx := range txs {
+		sender, _ := types.Sender(types.NewEIP155Signer(tx.ChainId()), tx)
+		voteInfo := strings.Split(string(tx.Data()), ":")
+		if len(voteInfo) == 0 {
+			continue
+		}
+
+		vote := Vote{}
+		switch voteInfo[0] {
+		case "vote":
+			if len(voteInfo) != 2 {
+				continue walk
+			}
+			if number != 0 && snap.hasVoted(sender) {
+				continue walk
+			}
+			tally, ok := big.NewInt(0).SetString(voteInfo[1], 10)
+			if !ok || tally.Cmp(big.NewInt(0)) < 0 {
+				continue walk
+			}
+			vote.Tall = tally
+			if state.GetBalance(sender).Cmp(tally) <= 0 {
+				continue walk
+			}
+			vote.To = *tx.To()
+			votes[sender] = vote
+			log.Info(fmt.Sprintf("vote from: %s, to: %s, tally: %s", sender.Hex(), vote.To.Hex(), vote.Tall.String()))
+			state.SubBalance(sender, tally)
+		case "cancel":
+			if number == 0 || !snap.hasVoted(sender) {
+				continue walk
+			}
+			vote.To = *tx.To()
+			state.AddBalance(sender, snap.getVoteTally(sender))
+			cancelVotes[sender] = vote
+		default:
+			continue walk
+		}
+	}
+	return
 }
 
 // SealHash 返回区块被签名封装之前的Hash值

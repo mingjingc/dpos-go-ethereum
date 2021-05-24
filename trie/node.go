@@ -33,15 +33,13 @@ type node interface {
 }
 
 type (
-	// 对应黄皮书分支节点Branch
 	fullNode struct {
 		Children [17]node // Actual trie node data to encode/decode (needs custom encoder)
 		flags    nodeFlag
 	}
-	// 黄皮书的拓展节点和叶子节点
 	shortNode struct {
 		Key   []byte
-		Val   node // 如果为valueNode,则是叶子节点；如果是hashNode，指向下一个节点，则是扩展节点
+		Val   node
 		flags nodeFlag
 	}
 	hashNode  []byte

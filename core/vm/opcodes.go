@@ -70,7 +70,7 @@ const (
 	SHR
 	SAR
 
-	SHA3 = 0x20
+	SHA3 OpCode = 0x20
 )
 
 // 0x30 range - closure state.
@@ -81,20 +81,9 @@ const (
 	CALLER
 	CALLVALUE
 	CALLDATALOAD
-	CALLDATASIZE // 36
+	CALLDATASIZE
 	CALLDATACOPY
 	CODESIZE
-	// 复制代码
-	// 当部署合约代码执行完之后，真正合约那部分的代码会保存在数据库，下次调用就根据合约地址调用真正的合约代码。
-	/*
-		00000017: PUSH1 0xfe          // stack=[0xfe]
-		00000019: DUP1                // stack=[0xfe,0xfe]
-		0000001a: PUSH2 0x24          // stack=[0x24,0xfe,0xfe]
-		0000001d: PUSH1 0x0           // stack=[0,0x24,0xfe,0xfe]
-		0000001f: CODECOPY            // 复制从0x24开始长度为0xfe的代码到地址为0的内存里, stack=[0xfe]
-		00000020: PUSH1 0x0           // stack=[0,0xfe]
-		00000022: RETURN              // 返回
-	*/
 	CODECOPY
 	GASPRICE
 	EXTCODESIZE
@@ -112,38 +101,29 @@ const (
 	NUMBER
 	DIFFICULTY
 	GASLIMIT
-	CHAINID     = 0x46
-	SELFBALANCE = 0x47
+	CHAINID     OpCode = 0x46
+	SELFBALANCE OpCode = 0x47
 )
 
 // 0x50 range - 'storage' and execution.
 const (
-	POP OpCode = 0x50 + iota
-	MLOAD
-	MSTORE  // mem[p..(p+32)) := v
-	MSTORE8 // mem[p] := v & 0xff - only modifies a single byte
-	SLOAD
-	/*
-		store: { 0x0 => 0x1 }
-			0x1
-			0x0
-			sstore
-		出栈两个元素，0x0出栈，接着0x0出栈，保存合约存储器中。0x0为键，0x0为值，即store: { 0x0 => 0x1 }
-	*/
-	SSTORE
-	JUMP
-	JUMPI
-	PC
-	MSIZE
-	GAS
-	JUMPDEST
+	POP      OpCode = 0x50
+	MLOAD    OpCode = 0x51
+	MSTORE   OpCode = 0x52
+	MSTORE8  OpCode = 0x53
+	SLOAD    OpCode = 0x54
+	SSTORE   OpCode = 0x55
+	JUMP     OpCode = 0x56
+	JUMPI    OpCode = 0x57
+	PC       OpCode = 0x58
+	MSIZE    OpCode = 0x59
+	GAS      OpCode = 0x5a
+	JUMPDEST OpCode = 0x5b
 )
 
 // 0x60 range.
 const (
-	// push 1 byte，如6080，解释为PUSH1 0x80
 	PUSH1 OpCode = 0x60 + iota
-	// pubsh 2 byte，如610062，解释为PUSH2 0x62
 	PUSH2
 	PUSH3
 	PUSH4
@@ -175,7 +155,6 @@ const (
 	PUSH30
 	PUSH31
 	PUSH32
-	// DUPi(i=1,2,3...)拷贝第i个元素到栈顶（从顶端开始数）
 	DUP1
 	DUP2
 	DUP3
@@ -192,7 +171,6 @@ const (
 	DUP14
 	DUP15
 	DUP16
-	// swapi(i=1,2,3...)，交换栈顶元素和第i个元素
 	SWAP1
 	SWAP2
 	SWAP3
@@ -235,10 +213,9 @@ const (
 	RETURN
 	DELEGATECALL
 	CREATE2
-	STATICCALL = 0xfa
-
-	REVERT       = 0xfd
-	SELFDESTRUCT = 0xff
+	STATICCALL   OpCode = 0xfa
+	REVERT       OpCode = 0xfd
+	SELFDESTRUCT OpCode = 0xff
 )
 
 // Since the opcodes aren't all in order we can't use a regular slice.
@@ -254,7 +231,7 @@ var opCodeToString = map[OpCode]string{
 	SMOD:       "SMOD",
 	EXP:        "EXP",
 	NOT:        "NOT",
-	LT:         "LT", // 0a
+	LT:         "LT",
 	GT:         "GT",
 	SLT:        "SLT",
 	SGT:        "SGT",
@@ -305,7 +282,9 @@ var opCodeToString = map[OpCode]string{
 	SELFBALANCE: "SELFBALANCE",
 
 	// 0x50 range - 'storage' and execution.
-	POP:      "POP",
+	POP: "POP",
+	//DUP:     "DUP",
+	//SWAP:    "SWAP",
 	MLOAD:    "MLOAD",
 	MSTORE:   "MSTORE",
 	MSTORE8:  "MSTORE8",
@@ -318,6 +297,7 @@ var opCodeToString = map[OpCode]string{
 	GAS:      "GAS",
 	JUMPDEST: "JUMPDEST",
 
+	// 0x60 range - push.
 	PUSH1:  "PUSH1",
 	PUSH2:  "PUSH2",
 	PUSH3:  "PUSH3",
@@ -409,7 +389,7 @@ var opCodeToString = map[OpCode]string{
 func (op OpCode) String() string {
 	str := opCodeToString[op]
 	if len(str) == 0 {
-		return fmt.Sprintf("Missing opcode 0x%x", int(op))
+		return fmt.Sprintf("opcode 0x%x not defined", int(op))
 	}
 
 	return str

@@ -5,8 +5,9 @@ package trezor
 
 import (
 	fmt "fmt"
-	proto "github.com/golang/protobuf/proto"
 	math "math"
+
+	proto "github.com/golang/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1525,9 +1526,7 @@ func init() {
 	proto.RegisterType((*SetU2FCounter)(nil), "hw.trezor.messages.management.SetU2FCounter")
 }
 
-func init() {
-	proto.RegisterFile("messages-management.proto", fileDescriptor_0c720c20d27aa029)
-}
+func init() { proto.RegisterFile("messages-management.proto", fileDescriptor_0c720c20d27aa029) }
 
 var fileDescriptor_0c720c20d27aa029 = []byte{
 	// 1393 bytes of a gzipped FileDescriptorProto

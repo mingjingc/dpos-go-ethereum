@@ -73,7 +73,6 @@ func (msg *jsonrpcMessage) hasValidID() bool {
 	return len(msg.ID) > 0 && msg.ID[0] != '{' && msg.ID[0] != '['
 }
 
-// {"id": 1, "method": "eth_subscribe", "params": ["newHeads"]}
 func (msg *jsonrpcMessage) isSubscribe() bool {
 	return strings.HasSuffix(msg.Method, subscribeMethodSuffix)
 }
@@ -98,7 +97,6 @@ func (msg *jsonrpcMessage) errorResponse(err error) *jsonrpcMessage {
 	return resp
 }
 
-// 组装返回信息，{"jsonrpc":"2.0","id":1,"result":resultContent}
 func (msg *jsonrpcMessage) response(result interface{}) *jsonrpcMessage {
 	enc, err := json.Marshal(result)
 	if err != nil {
@@ -116,6 +114,10 @@ func errorMessage(err error) *jsonrpcMessage {
 	ec, ok := err.(Error)
 	if ok {
 		msg.Error.Code = ec.ErrorCode()
+	}
+	de, ok := err.(DataError)
+	if ok {
+		msg.Error.Data = de.ErrorData()
 	}
 	return msg
 }
@@ -135,6 +137,10 @@ func (err *jsonError) Error() string {
 
 func (err *jsonError) ErrorCode() int {
 	return err.Code
+}
+
+func (err *jsonError) ErrorData() interface{} {
+	return err.Data
 }
 
 // Conn is a subset of the methods of net.Conn which are sufficient for ServerCodec.
@@ -196,15 +202,22 @@ func (c *jsonCodec) remoteAddr() string {
 	return c.remote
 }
 
-func (c *jsonCodec) readBatch() (msg []*jsonrpcMessage, batch bool, err error) {
+func (c *jsonCodec) readBatch() (messages []*jsonrpcMessage, batch bool, err error) {
 	// Decode the next JSON object in the input stream.
 	// This verifies basic syntax, etc.
 	var rawmsg json.RawMessage
 	if err := c.decode(&rawmsg); err != nil {
 		return nil, false, err
 	}
-	msg, batch = parseMessage(rawmsg)
-	return msg, batch, nil
+	messages, batch = parseMessage(rawmsg)
+	for i, msg := range messages {
+		if msg == nil {
+			// Message is JSON 'null'. Replace with zero value so it
+			// will be treated like any other invalid message.
+			messages[i] = new(jsonrpcMessage)
+		}
+	}
+	return messages, batch, nil
 }
 
 func (c *jsonCodec) writeJSON(ctx context.Context, v interface{}) error {
@@ -212,7 +225,6 @@ func (c *jsonCodec) writeJSON(ctx context.Context, v interface{}) error {
 	defer c.encMu.Unlock()
 
 	deadline, ok := ctx.Deadline()
-	// 限制解析时间
 	if !ok {
 		deadline = time.Now().Add(defaultWriteTimeout)
 	}
@@ -316,7 +328,6 @@ func parseArgumentArray(dec *json.Decoder, types []reflect.Type) ([]reflect.Valu
 }
 
 // parseSubscriptionName extracts the subscription name from an encoded argument array.
-// 订阅的方法为json数组第一个元素
 func parseSubscriptionName(rawArgs json.RawMessage) (string, error) {
 	dec := json.NewDecoder(bytes.NewReader(rawArgs))
 	if tok, _ := dec.Token(); tok != json.Delim('[') {
@@ -329,15 +340,3 @@ func parseSubscriptionName(rawArgs json.RawMessage) (string, error) {
 	}
 	return method, nil
 }
-
-// dec := json.NewDecoder(strings.NewReader("[1,\"hello\"]"))
-// tk, err := dec.Token()
-// for ; err != io.EOF; tk, err = dec.Token() {
-// 	fmt.Println(tk) //依次打印出 [, 1, hello, ]
-// }
-
-//dec := json.NewDecoder(strings.NewReader("{\"a\":1}"))
-//tk, err := dec.Token()
-//for ; err != io.EOF && tk != nil; tk, err = dec.Token() {
-//	fmt.Println(tk) //依次打印出 {, a, 1, }
-//}

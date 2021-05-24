@@ -50,11 +50,10 @@ type unconfirmedBlocks struct {
 	chain  chainRetriever // Blockchain to verify canonical status through
 	depth  uint           // Depth after which to discard previous blocks
 	blocks *ring.Ring     // Block infos to allow canonical chain cross checks
-	lock   sync.RWMutex   // Protects the fields from concurrent access
+	lock   sync.Mutex     // Protects the fields from concurrent access
 }
 
 // newUnconfirmedBlocks returns new data structure to track currently unconfirmed blocks.
-// 只是追踪本节点挖出的块是否被确认
 func newUnconfirmedBlocks(chain chainRetriever, depth uint) *unconfirmedBlocks {
 	return &unconfirmedBlocks{
 		chain: chain,

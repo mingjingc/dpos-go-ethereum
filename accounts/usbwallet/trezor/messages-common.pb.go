@@ -5,8 +5,9 @@ package trezor
 
 import (
 	fmt "fmt"
-	proto "github.com/golang/protobuf/proto"
 	math "math"
+
+	proto "github.com/golang/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -750,9 +751,7 @@ func init() {
 	proto.RegisterType((*HDNodeType)(nil), "hw.trezor.messages.common.HDNodeType")
 }
 
-func init() {
-	proto.RegisterFile("messages-common.proto", fileDescriptor_aaf30d059fdbc38d)
-}
+func init() { proto.RegisterFile("messages-common.proto", fileDescriptor_aaf30d059fdbc38d) }
 
 var fileDescriptor_aaf30d059fdbc38d = []byte{
 	// 846 bytes of a gzipped FileDescriptorProto

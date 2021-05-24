@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"math/rand"
@@ -203,7 +204,7 @@ func (b *testChainIndexBackend) assertBlocks(headNum, failNum uint64) (uint64, b
 }
 
 func (b *testChainIndexBackend) reorg(headNum uint64) uint64 {
-	firstChanged := headNum / b.indexer.sectionSize
+	firstChanged := (headNum + 1) / b.indexer.sectionSize
 	if firstChanged < b.stored {
 		b.stored = firstChanged
 	}
@@ -224,7 +225,10 @@ func (b *testChainIndexBackend) Process(ctx context.Context, header *types.Heade
 	//t.processCh <- header.Number.Uint64()
 	select {
 	case <-time.After(10 * time.Second):
-		b.t.Fatal("Unexpected call to Process")
+		b.t.Error("Unexpected call to Process")
+		// Can't use Fatal since this is not the test's goroutine.
+		// Returning error stops the chainIndexer's updateLoop
+		return errors.New("Unexpected call to Process")
 	case b.processCh <- header.Number.Uint64():
 	}
 	return nil
@@ -234,5 +238,9 @@ func (b *testChainIndexBackend) Commit() error {
 	if b.headerCnt != b.indexer.sectionSize {
 		b.t.Error("Not enough headers processed")
 	}
+	return nil
+}
+
+func (b *testChainIndexBackend) Prune(threshold uint64) error {
 	return nil
 }

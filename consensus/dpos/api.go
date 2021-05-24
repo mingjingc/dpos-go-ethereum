@@ -10,7 +10,7 @@ import (
 )
 
 type API struct {
-	chain consensus.ChainReader
+	chain consensus.ChainHeaderReader
 	dpos  *Dpos
 }
 

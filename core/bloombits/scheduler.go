@@ -22,7 +22,6 @@ import (
 
 // request represents a bloom retrieval task to prioritize and pull from the local
 // database or remotely from the network.
-// 一个检索任务
 type request struct {
 	section uint64 // Section index to retrieve the a bit-vector from
 	bit     uint   // Bit index within the section to retrieve the vector of
@@ -30,7 +29,6 @@ type request struct {
 
 // response represents the state of a requested bit-vector through a scheduler.
 type response struct {
-	// 缓存这个section的结果
 	cached []byte        // Cached bits to dedup multiple requests
 	done   chan struct{} // Channel to allow waiting for completion
 }
@@ -125,7 +123,7 @@ func (s *scheduler) scheduleRequests(reqs chan uint64, dist chan *request, pend 
 			select {
 			case <-quit:
 				return
-			case pend <- section: // scheduleDelivers 接收到pend消息
+			case pend <- section:
 			}
 		}
 	}
@@ -157,20 +155,19 @@ func (s *scheduler) scheduleDeliveries(pend chan uint64, done chan []byte, quit 
 			select {
 			case <-quit:
 				return
-			case <-res.done: // 阻塞在response[section].done上面
+			case <-res.done:
 			}
 			// Deliver the result
 			select {
 			case <-quit:
 				return
-			case done <- res.cached: //把response[section].cached 发送到done channel
+			case done <- res.cached:
 			}
 		}
 	}
 }
 
 // deliver is called by the request distributor when a reply to a request arrives.
-// 外部调用deliver方法，把seciton的request请求结果写入response[section].cached.并关闭response[section].done channel
 func (s *scheduler) deliver(sections []uint64, data [][]byte) {
 	s.lock.Lock()
 	defer s.lock.Unlock()

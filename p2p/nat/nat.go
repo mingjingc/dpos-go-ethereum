@@ -29,9 +29,6 @@ import (
 	natpmp "github.com/jackpal/go-nat-pmp"
 )
 
-// 那么我们首先通过内网的程序联系外网的程序，这样路由器就会自动给内网的这个程序分配一个端口。
-// 并在路由器里面记录一条映射 192.168.1.1:3003 -> 111.21.12.12:3003
-
 // An implementation of nat.Interface can map local ports to ports
 // accessible from the Internet.
 type Interface interface {
@@ -62,7 +59,6 @@ type Interface interface {
 //     "upnp"               uses the Universal Plug and Play protocol
 //     "pmp"                uses NAT-PMP with an auto-detected gateway address
 //     "pmp:192.168.0.1"    uses NAT-PMP with the given gateway address
-// 解析NAT接口描述，返回对应对象
 func Parse(spec string) (Interface, error) {
 	var (
 		parts = strings.SplitN(spec, ":", 2)
@@ -95,15 +91,14 @@ func Parse(spec string) (Interface, error) {
 }
 
 const (
-	mapTimeout        = 20 * time.Minute
-	mapUpdateInterval = 15 * time.Minute
+	mapTimeout = 10 * time.Minute
 )
 
 // Map adds a port mapping on m and keeps it alive until c is closed.
 // This function is typically invoked in its own goroutine.
-func Map(m Interface, c chan struct{}, protocol string, extport, intport int, name string) {
+func Map(m Interface, c <-chan struct{}, protocol string, extport, intport int, name string) {
 	log := log.New("proto", protocol, "extport", extport, "intport", intport, "interface", m)
-	refresh := time.NewTimer(mapUpdateInterval)
+	refresh := time.NewTimer(mapTimeout)
 	defer func() {
 		refresh.Stop()
 		log.Debug("Deleting port mapping")
@@ -116,7 +111,6 @@ func Map(m Interface, c chan struct{}, protocol string, extport, intport int, na
 	}
 	for {
 		select {
-		// c close后回ok为false
 		case _, ok := <-c:
 			if !ok {
 				return
@@ -126,7 +120,7 @@ func Map(m Interface, c chan struct{}, protocol string, extport, intport int, na
 			if err := m.AddMapping(protocol, extport, intport, name, mapTimeout); err != nil {
 				log.Debug("Couldn't add port mapping", "err", err)
 			}
-			refresh.Reset(mapUpdateInterval)
+			refresh.Reset(mapTimeout)
 		}
 	}
 }
@@ -171,7 +165,6 @@ func UPnP() Interface {
 // PMP returns a port mapper that uses NAT-PMP. The provided gateway
 // address should be the IP of your router. If the given gateway
 // address is nil, PMP will attempt to auto-discover the router.
-// 如果给的网关为nil, 则尝试自动发现
 func PMP(gateway net.IP) Interface {
 	if gateway != nil {
 		return &pmp{gw: gateway, c: natpmp.NewClient(gateway)}
@@ -186,7 +179,6 @@ func PMP(gateway net.IP) Interface {
 //
 // This type is useful because discovery can take a while but we
 // want return an Interface value from UPnP, PMP and Auto immediately.
-// 发现需要时间，而我们需要马上返回UPnP、PMP 和 Auto
 type autodisc struct {
 	what string // type of interface being autodiscovered
 	once sync.Once
@@ -227,13 +219,11 @@ func (n *autodisc) String() string {
 	defer n.mu.Unlock()
 	if n.found == nil {
 		return n.what
-	} else {
-		return n.found.String()
 	}
+	return n.found.String()
 }
 
 // wait blocks until auto-discovery has been performed.
-// 等待块，直到执行自动发现。
 func (n *autodisc) wait() error {
 	n.once.Do(func() {
 		n.mu.Lock()

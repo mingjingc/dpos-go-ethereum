@@ -20,7 +20,6 @@ package clique
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"math/big"
 	"math/rand"
@@ -40,6 +39,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/trie"
 	lru "github.com/hashicorp/golang-lru"
 	"golang.org/x/crypto/sha3"
 )
@@ -54,7 +54,7 @@ const (
 
 // Clique proof-of-authority protocol constants.
 var (
-	epochLength = uint64(5000) // Default number of blocks after which to checkpoint and reset the pending votes
+	epochLength = uint64(30000) // Default number of blocks after which to checkpoint and reset the pending votes
 
 	extraVanity = 32                     // Fixed number of extra-data prefix bytes reserved for signer vanity
 	extraSeal   = crypto.SignatureLength // Fixed number of extra-data suffix bytes reserved for signer seal
@@ -62,7 +62,6 @@ var (
 	nonceAuthVote = hexutil.MustDecode("0xffffffffffffffff") // Magic nonce number to vote on adding a new signer
 	nonceDropVote = hexutil.MustDecode("0x0000000000000000") // Magic nonce number to vote on removing a signer.
 
-	// 除了POW共识外，叔块在其他算法中总是无效的
 	uncleHash = types.CalcUncleHash(nil) // Always Keccak256(RLP([])) as uncles are meaningless outside of PoW.
 
 	diffInTurn = big.NewInt(2) // Block difficulty for in-turn signatures
@@ -123,9 +122,9 @@ var (
 	// turn of the signer.
 	errWrongDifficulty = errors.New("wrong difficulty")
 
-	// ErrInvalidTimestamp is returned if the timestamp of a block is lower than
+	// errInvalidTimestamp is returned if the timestamp of a block is lower than
 	// the previous block's timestamp + the minimum block period.
-	ErrInvalidTimestamp = errors.New("invalid timestamp")
+	errInvalidTimestamp = errors.New("invalid timestamp")
 
 	// errInvalidVotingChain is returned if an authorization list is attempted to
 	// be modified via out-of-range or non-contiguous headers.
@@ -139,12 +138,10 @@ var (
 	errRecentlySigned = errors.New("recently signed")
 )
 
-// SignerFn is a signer callback function to request a header to be signed by a
-// backing account.
-type SignerFn func(accounts.Account, string, []byte) ([]byte, error)
+// SignerFn hashes and signs the data to be signed by a backing account.
+type SignerFn func(signer accounts.Account, mimeType string, message []byte) ([]byte, error)
 
 // ecrecover extracts the Ethereum account address from a signed header.
-// 出块者的地址通过签名数据计算得出
 func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
 	// If the signature's already cached, return that
 	hash := header.Hash()
@@ -178,7 +175,6 @@ type Clique struct {
 	recents    *lru.ARCCache // Snapshots for recent block to speed up reorgs
 	signatures *lru.ARCCache // Signatures of recent blocks to speed up mining
 
-	// clique投票机制，如果及时发现某人作恶，其他签名者可以快速反应，将其强制踢出签名者列表
 	proposals map[common.Address]bool // Current list of proposals we are pushing
 
 	signer common.Address // Ethereum address of the signing key
@@ -217,15 +213,14 @@ func (c *Clique) Author(header *types.Header) (common.Address, error) {
 }
 
 // VerifyHeader checks whether a header conforms to the consensus rules.
-func (c *Clique) VerifyHeader(chain consensus.ChainReader, header *types.Header, seal bool) error {
-	// header的parents唯一，为header.Number-1
+func (c *Clique) VerifyHeader(chain consensus.ChainHeaderReader, header *types.Header, seal bool) error {
 	return c.verifyHeader(chain, header, nil)
 }
 
 // VerifyHeaders is similar to VerifyHeader, but verifies a batch of headers. The
 // method returns a quit channel to abort the operations and a results channel to
 // retrieve the async verifications (the order is that of the input slice).
-func (c *Clique) VerifyHeaders(chain consensus.ChainReader, headers []*types.Header, seals []bool) (chan<- struct{}, <-chan error) {
+func (c *Clique) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types.Header, seals []bool) (chan<- struct{}, <-chan error) {
 	abort := make(chan struct{})
 	results := make(chan error, len(headers))
 
@@ -247,7 +242,7 @@ func (c *Clique) VerifyHeaders(chain consensus.ChainReader, headers []*types.Hea
 // caller may optionally pass in a batch of parents (ascending order) to avoid
 // looking those up from the database. This is useful for concurrently verifying
 // a batch of new headers.
-func (c *Clique) verifyHeader(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
+func (c *Clique) verifyHeader(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
 	if header.Number == nil {
 		return errUnknownBlock
 	}
@@ -310,8 +305,7 @@ func (c *Clique) verifyHeader(chain consensus.ChainReader, header *types.Header,
 // rather depend on a batch of previous headers. The caller may optionally pass
 // in a batch of parents (ascending order) to avoid looking those up from the
 // database. This is useful for concurrently verifying a batch of new headers.
-//
-func (c *Clique) verifyCascadingFields(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
+func (c *Clique) verifyCascadingFields(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
 	// The genesis block is the always valid dead-end
 	number := header.Number.Uint64()
 	if number == 0 {
@@ -320,17 +314,15 @@ func (c *Clique) verifyCascadingFields(chain consensus.ChainReader, header *type
 	// Ensure that the block's timestamp isn't too close to its parent
 	var parent *types.Header
 	if len(parents) > 0 {
-		// 一次验证多个区块时，如 B1->B2->B3->B4，B3的parent是B3，即[B1,B2,B3]数组中的最后一个
 		parent = parents[len(parents)-1]
 	} else {
-		// 当个区块验证，则parent区块number为header.Number-1
 		parent = chain.GetHeader(header.ParentHash, number-1)
 	}
 	if parent == nil || parent.Number.Uint64() != number-1 || parent.Hash() != header.ParentHash {
 		return consensus.ErrUnknownAncestor
 	}
 	if parent.Time+c.config.Period > header.Time {
-		return ErrInvalidTimestamp
+		return errInvalidTimestamp
 	}
 	// Retrieve the snapshot needed to verify this header and cache it
 	snap, err := c.snapshot(chain, number-1, header.ParentHash, parents)
@@ -353,8 +345,7 @@ func (c *Clique) verifyCascadingFields(chain consensus.ChainReader, header *type
 }
 
 // snapshot retrieves the authorization snapshot at a given point in time.
-// 取某个区块的快照
-func (c *Clique) snapshot(chain consensus.ChainReader, number uint64, hash common.Hash, parents []*types.Header) (*Snapshot, error) {
+func (c *Clique) snapshot(chain consensus.ChainHeaderReader, number uint64, hash common.Hash, parents []*types.Header) (*Snapshot, error) {
 	// Search for a snapshot in memory or on disk for checkpoints
 	var (
 		headers []*types.Header
@@ -367,7 +358,6 @@ func (c *Clique) snapshot(chain consensus.ChainReader, number uint64, hash commo
 			break
 		}
 		// If an on-disk checkpoint snapshot can be found, use that
-		// 如果高度为checkpointInterval的整数倍，则直接尝试从数据库中读取Snapshot对象
 		if number%checkpointInterval == 0 {
 			if s, err := loadSnapshot(c.config, c.signatures, c.db, hash); err == nil {
 				log.Trace("Loaded voting snapshot from disk", "number", number, "hash", hash)
@@ -379,21 +369,15 @@ func (c *Clique) snapshot(chain consensus.ChainReader, number uint64, hash commo
 		// at a checkpoint block without a parent (light client CHT), or we have piled
 		// up more headers than allowed to be reorged (chain reinit from a freezer),
 		// consider the checkpoint trusted and snapshot it.
-		// https://github.com/ethereum/go-ethereum/pull/17620
-		// 新建快照
-		// 最初只有创世块才进入到这个分支。这导致如果你的块都是从别的节点同步过来的（因而缓存和数据库中都没有Snapshot被保存过），
-		// 那么想要在某个高度上创建一个Snapshot，就要把所有区块从头到尾都遍历一遍。
-		if number == 0 || (number%c.config.Epoch == 0 && (len(headers) > params.ImmutabilityThreshold || chain.GetHeaderByNumber(number-1) == nil)) {
+		if number == 0 || (number%c.config.Epoch == 0 && (len(headers) > params.FullImmutabilityThreshold || chain.GetHeaderByNumber(number-1) == nil)) {
 			checkpoint := chain.GetHeaderByNumber(number)
 			if checkpoint != nil {
 				hash := checkpoint.Hash()
-				// 从checkpoint块的Extra中取出签名列表
+
 				signers := make([]common.Address, (len(checkpoint.Extra)-extraVanity-extraSeal)/common.AddressLength)
 				for i := 0; i < len(signers); i++ {
-					// adddress的长度只有20字节，只会复制checkpoint.Extra的起点起前20个字节
 					copy(signers[i][:], checkpoint.Extra[extraVanity+i*common.AddressLength:])
 				}
-				// 调用newSnapshot在checkpoint上创建Snapshot对象，并将其存入数据库中
 				snap = newSnapshot(c.config, c.signatures, number, hash, signers)
 				if err := snap.store(c.db); err != nil {
 					return nil, err
@@ -403,7 +387,6 @@ func (c *Clique) snapshot(chain consensus.ChainReader, number uint64, hash commo
 			}
 		}
 		// No snapshot for this header, gather the header and move backward
-		// 如果以上情况都不是，则往前回溯区块的链，并保存回溯过程中遇到的header
 		var header *types.Header
 		if len(parents) > 0 {
 			// If we have explicit parents, pick from there (enforced)
@@ -423,11 +406,9 @@ func (c *Clique) snapshot(chain consensus.ChainReader, number uint64, hash commo
 		number, hash = number-1, header.ParentHash
 	}
 	// Previous snapshot found, apply any pending headers on top of it
-	// 把headers中保存的头从按高度从小到大排序。
 	for i := 0; i < len(headers)/2; i++ {
 		headers[i], headers[len(headers)-1-i] = headers[len(headers)-1-i], headers[i]
 	}
-	// 将回溯中遇到的headers传给apply方法，得到一个新的snap对象
 	snap, err := snap.apply(headers)
 	if err != nil {
 		return nil, err
@@ -435,7 +416,6 @@ func (c *Clique) snapshot(chain consensus.ChainReader, number uint64, hash commo
 	c.recents.Add(snap.Hash, snap)
 
 	// If we've generated a new checkpoint snapshot, save to disk
-	// 如果高度为checkpointInterval的整数倍，则将Snapshot对象存储到数据库中
 	if snap.Number%checkpointInterval == 0 && len(headers) > 0 {
 		if err = snap.store(c.db); err != nil {
 			return nil, err
@@ -454,18 +434,11 @@ func (c *Clique) VerifyUncles(chain consensus.ChainReader, block *types.Block) e
 	return nil
 }
 
-// VerifySeal implements consensus.Engine, checking whether the signature contained
-// in the header satisfies the consensus protocol requirements.
-func (c *Clique) VerifySeal(chain consensus.ChainReader, header *types.Header) error {
-	return c.verifySeal(chain, header, nil)
-}
-
 // verifySeal checks whether the signature contained in the header satisfies the
 // consensus protocol requirements. The method accepts an optional list of parent
 // headers that aren't yet part of the local blockchain to generate the snapshots
 // from.
-// 校验别的结点广播过来的区块信息的。
-func (c *Clique) verifySeal(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
+func (c *Clique) verifySeal(chain consensus.ChainHeaderReader, header *types.Header, parents []*types.Header) error {
 	// Verifying the genesis block is not supported
 	number := header.Number.Uint64()
 	if number == 0 {
@@ -508,10 +481,8 @@ func (c *Clique) verifySeal(chain consensus.ChainReader, header *types.Header, p
 
 // Prepare implements consensus.Engine, preparing all the consensus fields of the
 // header for running the transactions on top.
-func (c *Clique) Prepare(chain consensus.ChainReader, header *types.Header) error {
-
+func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {
 	// If the block isn't a checkpoint, cast a random vote (good enough for now)
-	// checkpoint的块的coinbase会放随机的投票
 	header.Coinbase = common.Address{}
 	header.Nonce = types.BlockNonce{}
 
@@ -521,14 +492,10 @@ func (c *Clique) Prepare(chain consensus.ChainReader, header *types.Header) erro
 	if err != nil {
 		return err
 	}
-
-	// 如果number不是epoch的整数倍（不是checkpoint），则进行投票信息的填充
 	if number%c.config.Epoch != 0 {
 		c.lock.RLock()
+
 		// Gather all the proposals that make sense voting on
-		// 在console中调用clique.propose后，投票信息就会写入Clique.proposals字段中，
-		// 在随后出块调用Clique.Prepare方法时，会从Clique.proposals中随机选择一条投票信息，地址放到Header.Coinbase，
-		// 投票结果放到 Header.Nonce 中
 		addresses := make([]common.Address, 0, len(c.proposals))
 		for address, authorize := range c.proposals {
 			if snap.validVote(address, authorize) {
@@ -537,7 +504,6 @@ func (c *Clique) Prepare(chain consensus.ChainReader, header *types.Header) erro
 		}
 		// If there's pending proposals, cast a vote on them
 		if len(addresses) > 0 {
-			// 从有效的提案里随机选一个
 			header.Coinbase = addresses[rand.Intn(len(addresses))]
 			if c.proposals[header.Coinbase] {
 				copy(header.Nonce[:], nonceAuthVote)
@@ -548,7 +514,7 @@ func (c *Clique) Prepare(chain consensus.ChainReader, header *types.Header) erro
 		c.lock.RUnlock()
 	}
 	// Set the correct difficulty
-	header.Difficulty = CalcDifficulty(snap, c.signer)
+	header.Difficulty = calcDifficulty(snap, c.signer)
 
 	// Ensure the extra data has all its components
 	if len(header.Extra) < extraVanity {
@@ -556,7 +522,6 @@ func (c *Clique) Prepare(chain consensus.ChainReader, header *types.Header) erro
 	}
 	header.Extra = header.Extra[:extraVanity]
 
-	// 如果number是epoch的整数倍（将要生成一个checkpoint），则填充签名者列表
 	if number%c.config.Epoch == 0 {
 		for _, signer := range snap.signers() {
 			header.Extra = append(header.Extra, signer[:]...)
@@ -581,10 +546,7 @@ func (c *Clique) Prepare(chain consensus.ChainReader, header *types.Header) erro
 
 // Finalize implements consensus.Engine, ensuring no uncles are set, nor block
 // rewards given.
-// POA没有区块奖励，所以finalize没有
-// Finalize 只会对其他节点接收来的区块进行验证
-func (c *Clique) Finalize(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
-	fmt.Println("Finalize", header.Number.Uint64())
+func (c *Clique) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
 	// No block rewards in PoA, so the state remains as is and uncles are dropped
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
 	header.UncleHash = types.CalcUncleHash(nil)
@@ -592,14 +554,12 @@ func (c *Clique) Finalize(chain consensus.ChainReader, header *types.Header, sta
 
 // FinalizeAndAssemble implements consensus.Engine, ensuring no uncles are set,
 // nor block rewards given, and returns the final block.
-// 将区块头 header，事务列表 txs，收据列表 receipts 这些最重要的信息组装进区块中
-func (c *Clique) FinalizeAndAssemble(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
-	// No block rewards in PoA, so the state remains as is and uncles are dropped
-	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
-	header.UncleHash = types.CalcUncleHash(nil)
+func (c *Clique) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
+	// Finalize block
+	c.Finalize(chain, header, state, txs, uncles)
 
 	// Assemble and return the final block for sealing
-	return types.NewBlock(header, txs, nil, receipts), nil
+	return types.NewBlock(header, txs, nil, receipts, trie.NewStackTrie(nil)), nil
 }
 
 // Authorize injects a private key into the consensus engine to mint new blocks
@@ -614,8 +574,7 @@ func (c *Clique) Authorize(signer common.Address, signFn SignerFn) {
 
 // Seal implements consensus.Engine, attempting to create a sealed block using
 // the local signing credentials.
-// 对组装好的区块进行签名，若还没轮到自己，随机延迟时间；若已在最近签名，则放弃该区块。
-func (c *Clique) Seal(chain consensus.ChainReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
+func (c *Clique) Seal(chain consensus.ChainHeaderReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
 	header := block.Header()
 
 	// Sealing the genesis block is not supported
@@ -624,7 +583,6 @@ func (c *Clique) Seal(chain consensus.ChainReader, block *types.Block, results c
 		return errUnknownBlock
 	}
 	// For 0-period chains, refuse to seal empty blocks (no reward but would spin sealing)
-	// 什么？区块的交易不是可以为空吗？
 	if c.config.Period == 0 && len(block.Transactions()) == 0 {
 		log.Info("Sealing paused, waiting for transactions")
 		return nil
@@ -646,7 +604,6 @@ func (c *Clique) Seal(chain consensus.ChainReader, block *types.Block, results c
 	for seen, recent := range snap.Recents {
 		if recent == signer {
 			// Signer is among recents, only wait if the current block doesn't shift it out
-			// 这个"最近"的基点是当前块的高度，囊括的范围为len(Snapshot.Signers)/2 + 1
 			if limit := uint64(len(snap.Signers)/2 + 1); number < limit || seen > number-limit {
 				log.Info("Signed recently, must wait for others")
 				return nil
@@ -688,20 +645,18 @@ func (c *Clique) Seal(chain consensus.ChainReader, block *types.Block, results c
 }
 
 // CalcDifficulty is the difficulty adjustment algorithm. It returns the difficulty
-// that a new block should have based on the previous blocks in the chain and the
-// current signer.
-func (c *Clique) CalcDifficulty(chain consensus.ChainReader, time uint64, parent *types.Header) *big.Int {
+// that a new block should have:
+// * DIFF_NOTURN(2) if BLOCK_NUMBER % SIGNER_COUNT != SIGNER_INDEX
+// * DIFF_INTURN(1) if BLOCK_NUMBER % SIGNER_COUNT == SIGNER_INDEX
+func (c *Clique) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
 	snap, err := c.snapshot(chain, parent.Number.Uint64(), parent.Hash(), nil)
 	if err != nil {
 		return nil
 	}
-	return CalcDifficulty(snap, c.signer)
+	return calcDifficulty(snap, c.signer)
 }
 
-// CalcDifficulty is the difficulty adjustment algorithm. It returns the difficulty
-// that a new block should have based on the previous blocks in the chain and the
-// current signer.
-func CalcDifficulty(snap *Snapshot, signer common.Address) *big.Int {
+func calcDifficulty(snap *Snapshot, signer common.Address) *big.Int {
 	if snap.inturn(snap.Number+1, signer) {
 		return new(big.Int).Set(diffInTurn)
 	}
@@ -720,7 +675,7 @@ func (c *Clique) Close() error {
 
 // APIs implements consensus.Engine, returning the user facing RPC API to allow
 // controlling the signer voting.
-func (c *Clique) APIs(chain consensus.ChainReader) []rpc.API {
+func (c *Clique) APIs(chain consensus.ChainHeaderReader) []rpc.API {
 	return []rpc.API{{
 		Namespace: "clique",
 		Version:   "1.0",

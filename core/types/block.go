@@ -29,11 +29,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/rlp"
-	"golang.org/x/crypto/sha3"
 )
 
 var (
-	EmptyRootHash  = DeriveSha(Transactions{})
+	EmptyRootHash  = common.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
 	EmptyUncleHash = rlpHash([]*Header(nil))
 )
 
@@ -51,8 +50,6 @@ func EncodeNonce(i uint64) BlockNonce {
 
 // Uint64 returns the integer value of a block nonce.
 func (n BlockNonce) Uint64() uint64 {
-	// 1）Little-endian：将低序字节存储在起始地址（低位编址）
-	// 2）Big-endian：将高序字节存储在起始地址（高位编址）
 	return binary.BigEndian.Uint64(n[:])
 }
 
@@ -70,33 +67,21 @@ func (n *BlockNonce) UnmarshalText(input []byte) error {
 
 // Header represents a block header in the Ethereum blockchain.
 type Header struct {
-	ParentHash common.Hash `json:"parentHash"       gencodec:"required"`
-	UncleHash  common.Hash `json:"sha3Uncles"       gencodec:"required"`
-	// Coinbase字段在ethash中用来存放出块者的地址。在clique中用来保存投票时被投票人的地址。
-	// clique出块者的地址通过签名数据计算得出（ecrecover）。
-	Coinbase common.Address `json:"miner"            gencodec:"required"`
-
-	// 世界态的根hash，世界态的 merkle tree 由
-	Root        common.Hash `json:"stateRoot"        gencodec:"required"`
-	TxHash      common.Hash `json:"transactionsRoot" gencodec:"required"`
-	ReceiptHash common.Hash `json:"receiptsRoot"     gencodec:"required"`
-
-	Bloom      Bloom    `json:"logsBloom"        gencodec:"required"`
-	Difficulty *big.Int `json:"difficulty"       gencodec:"required"`
-	Number     *big.Int `json:"number"           gencodec:"required"`
-	GasLimit   uint64   `json:"gasLimit"         gencodec:"required"`
-	GasUsed    uint64   `json:"gasUsed"          gencodec:"required"`
-	Time       uint64   `json:"timestamp"        gencodec:"required"`
-	// ethash: 可用于调整Header的哈希
-	// clique: 在clique中Extra除了依然保存vanity数据和Seal数据，还在checkpoint中增加了所有签名者地址数据。其结构为：
-	//           vanityData(固定32字节)+signer1Address+signer2Address+...(只有checkpoint块需要添加)+SealData(固定65字节)
-	Extra []byte `json:"extraData"        gencodec:"required"`
-
-	MixDigest common.Hash `json:"mixHash"`
-	// ethash: 作为一个变量调整Header的哈希
-	// clique：nonce值为nonceAuthVote(0xffffffffffffffff)则代表这是一次授权投票；
-	//         如果值为nonceDropVote(0x0000000000000000)则代表这是一次踢出投票。
-	Nonce BlockNonce `json:"nonce"`
+	ParentHash  common.Hash    `json:"parentHash"       gencodec:"required"`
+	UncleHash   common.Hash    `json:"sha3Uncles"       gencodec:"required"`
+	Coinbase    common.Address `json:"miner"            gencodec:"required"`
+	Root        common.Hash    `json:"stateRoot"        gencodec:"required"`
+	TxHash      common.Hash    `json:"transactionsRoot" gencodec:"required"`
+	ReceiptHash common.Hash    `json:"receiptsRoot"     gencodec:"required"`
+	Bloom       Bloom          `json:"logsBloom"        gencodec:"required"`
+	Difficulty  *big.Int       `json:"difficulty"       gencodec:"required"`
+	Number      *big.Int       `json:"number"           gencodec:"required"`
+	GasLimit    uint64         `json:"gasLimit"         gencodec:"required"`
+	GasUsed     uint64         `json:"gasUsed"          gencodec:"required"`
+	Time        uint64         `json:"timestamp"        gencodec:"required"`
+	Extra       []byte         `json:"extraData"        gencodec:"required"`
+	MixDigest   common.Hash    `json:"mixHash"`
+	Nonce       BlockNonce     `json:"nonce"`
 }
 
 // field type overrides for gencodec
@@ -143,11 +128,15 @@ func (h *Header) SanityCheck() error {
 	return nil
 }
 
-func rlpHash(x interface{}) (h common.Hash) {
-	hw := sha3.NewLegacyKeccak256()
-	rlp.Encode(hw, x)
-	hw.Sum(h[:0])
-	return h
+// EmptyBody returns true if there is no additional 'body' to complete the header
+// that is: no transactions and no uncles.
+func (h *Header) EmptyBody() bool {
+	return h.TxHash == EmptyRootHash && h.UncleHash == EmptyUncleHash
+}
+
+// EmptyReceipts returns true if there are no receipts for this header/block.
+func (h *Header) EmptyReceipts() bool {
+	return h.ReceiptHash == EmptyRootHash
 }
 
 // Body is a simple (mutable, non-safe) data container for storing and moving
@@ -163,7 +152,7 @@ type Block struct {
 	uncles       []*Header
 	transactions Transactions
 
-	// caches 缓存头部hash，当第一次获取区块hash时会计算，之后缓存在这个变量
+	// caches
 	hash atomic.Value
 	size atomic.Value
 
@@ -177,33 +166,11 @@ type Block struct {
 	ReceivedFrom interface{}
 }
 
-// DeprecatedTd is an old relic for extracting the TD of a block. It is in the
-// code solely to facilitate upgrading the database from the old format to the
-// new, after which it should be deleted. Do not use!
-func (b *Block) DeprecatedTd() *big.Int {
-	return b.td
-}
-
-// [deprecated by eth/63]
-// StorageBlock defines the RLP encoding of a Block stored in the
-// state database. The StorageBlock encoding contains fields that
-// would otherwise need to be recomputed.
-type StorageBlock Block
-
 // "external" block encoding. used for eth protocol, etc.
 type extblock struct {
 	Header *Header
 	Txs    []*Transaction
 	Uncles []*Header
-}
-
-// [deprecated by eth/63]
-// "storage" block encoding. used for database.
-type storageblock struct {
-	Header *Header
-	Txs    []*Transaction
-	Uncles []*Header
-	TD     *big.Int
 }
 
 // NewBlock creates a new block. The input data is copied,
@@ -213,14 +180,14 @@ type storageblock struct {
 // The values of TxHash, UncleHash, ReceiptHash and Bloom in header
 // are ignored and set to values derived from the given txs, uncles
 // and receipts.
-func NewBlock(header *Header, txs []*Transaction, uncles []*Header, receipts []*Receipt) *Block {
+func NewBlock(header *Header, txs []*Transaction, uncles []*Header, receipts []*Receipt, hasher TrieHasher) *Block {
 	b := &Block{header: CopyHeader(header), td: new(big.Int)}
 
 	// TODO: panic if len(txs) != len(receipts)
 	if len(txs) == 0 {
 		b.header.TxHash = EmptyRootHash
 	} else {
-		b.header.TxHash = DeriveSha(Transactions(txs))
+		b.header.TxHash = DeriveSha(Transactions(txs), hasher)
 		b.transactions = make(Transactions, len(txs))
 		copy(b.transactions, txs)
 	}
@@ -228,7 +195,7 @@ func NewBlock(header *Header, txs []*Transaction, uncles []*Header, receipts []*
 	if len(receipts) == 0 {
 		b.header.ReceiptHash = EmptyRootHash
 	} else {
-		b.header.ReceiptHash = DeriveSha(Receipts(receipts))
+		b.header.ReceiptHash = DeriveSha(Receipts(receipts), hasher)
 		b.header.Bloom = CreateBloom(receipts)
 	}
 
@@ -288,16 +255,6 @@ func (b *Block) EncodeRLP(w io.Writer) error {
 		Txs:    b.transactions,
 		Uncles: b.uncles,
 	})
-}
-
-// [deprecated by eth/63]
-func (b *StorageBlock) DecodeRLP(s *rlp.Stream) error {
-	var sb storageblock
-	if err := s.Decode(&sb); err != nil {
-		return err
-	}
-	b.header, b.uncles, b.transactions, b.td = sb.Header, sb.Uncles, sb.Txs, sb.TD
-	return nil
 }
 
 // TODO: copies

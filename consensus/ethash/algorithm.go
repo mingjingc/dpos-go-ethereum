@@ -35,26 +35,18 @@ import (
 )
 
 const (
-	// 增长只是一个大概值，需要保证 dataset 或 cache mix或item数量是一个素数
-	// dataset初始为 1 G
-	datasetInitBytes = 1 << 30 // Bytes in dataset at genesis
-	// 每隔一个epoch dataset 增长 8 M
+	datasetInitBytes   = 1 << 30 // Bytes in dataset at genesis
 	datasetGrowthBytes = 1 << 23 // Dataset growth per epoch
-	// 初始缓存块为 16 M
-	cacheInitBytes = 1 << 24 // Bytes in cache at genesis
-	// 每隔一个epoch 缓存块增长 128 K
-	cacheGrowthBytes = 1 << 17 // Cache growth per epoch
-	// 一个epoch 3万个区块
-	epochLength    = 30000 // Blocks per epoch
-	mixBytes       = 128   // Width of mix
-	hashBytes      = 64    // Hash length in bytes
-	hashWords      = 16    // Number of 32 bit ints in a hash
-	datasetParents = 256   // Number of parents of each dataset element
-	cacheRounds    = 3     // Number of rounds in cache production
-	loopAccesses   = 64    // Number of accesses in hashimoto loop
+	cacheInitBytes     = 1 << 24 // Bytes in cache at genesis
+	cacheGrowthBytes   = 1 << 17 // Cache growth per epoch
+	epochLength        = 30000   // Blocks per epoch
+	mixBytes           = 128     // Width of mix
+	hashBytes          = 64      // Hash length in bytes
+	hashWords          = 16      // Number of 32 bit ints in a hash
+	datasetParents     = 256     // Number of parents of each dataset element
+	cacheRounds        = 3       // Number of rounds in cache production
+	loopAccesses       = 64      // Number of accesses in hashimoto loop
 )
-
-// blockNumber => seed => cache => dataset
 
 // cacheSize returns the size of the ethash verification cache that belongs to a certain
 // block number.
@@ -92,7 +84,6 @@ func datasetSize(block uint64) uint64 {
 // to reduce the risk of accidental regularities leading to cyclic behavior.
 func calcDatasetSize(epoch int) uint64 {
 	size := datasetInitBytes + datasetGrowthBytes*uint64(epoch) - mixBytes
-	// size/128 取小于 2^24 + (2^17)*epoch - 2^6 的最大素数
 	for !new(big.Int).SetUint64(size / mixBytes).ProbablyPrime(1) { // Always accurate for n < 2^64
 		size -= 2 * mixBytes
 	}
@@ -145,7 +136,6 @@ func seedHash(block uint64) []byte {
 // algorithm from Strict Memory Hard Hashing Functions (2014). The output is a
 // set of 524288 64-byte values.
 // This method places the result into dest in machine byte order.
-// 结果放在dest，dest由seed生成，
 func generateCache(dest []uint32, epoch uint64, seed []byte) {
 	// Print some debug logs to allow analysis on low end devices
 	logger := log.New("epoch", epoch)
@@ -161,17 +151,18 @@ func generateCache(dest []uint32, epoch uint64, seed []byte) {
 		logFn("Generated ethash verification cache", "elapsed", common.PrettyDuration(elapsed))
 	}()
 	// Convert our destination slice to a byte buffer
-	header := *(*reflect.SliceHeader)(unsafe.Pointer(&dest))
-	header.Len *= 4
-	header.Cap *= 4
-	cache := *(*[]byte)(unsafe.Pointer(&header))
+	var cache []byte
+	cacheHdr := (*reflect.SliceHeader)(unsafe.Pointer(&cache))
+	dstHdr := (*reflect.SliceHeader)(unsafe.Pointer(&dest))
+	cacheHdr.Data = dstHdr.Data
+	cacheHdr.Len = dstHdr.Len * 4
+	cacheHdr.Cap = dstHdr.Cap * 4
 
 	// Calculate the number of theoretical rows (we'll store in one buffer nonetheless)
 	size := uint64(len(cache))
 	rows := int(size) / hashBytes
 
 	// Start a monitoring goroutine to report progress on low end devices
-	// 记录生成 cache 的进度，仅为查看，可以选择忽略
 	var progress uint32
 
 	done := make(chan struct{})
@@ -183,7 +174,7 @@ func generateCache(dest []uint32, epoch uint64, seed []byte) {
 			case <-done:
 				return
 			case <-time.After(3 * time.Second):
-				logger.Info("Generating ethash verification cache", "percentage", atomic.LoadUint32(&progress)*100/uint32(rows)/4, "elapsed", common.PrettyDuration(time.Since(start)))
+				logger.Info("Generating ethash verification cache", "percentage", atomic.LoadUint32(&progress)*100/uint32(rows)/(cacheRounds+1), "elapsed", common.PrettyDuration(time.Since(start)))
 			}
 		}
 	}()
@@ -191,11 +182,8 @@ func generateCache(dest []uint32, epoch uint64, seed []byte) {
 	keccak512 := makeHasher(sha3.NewLegacyKeccak512())
 
 	// Sequentially produce the initial dataset
-	// 由 seed 求hash 得出cache的第一个item
 	keccak512(cache, seed)
-	// 一个dataset item 和 cache item 长度均为64字节
 	for offset := uint64(hashBytes); offset < size; offset += hashBytes {
-		// 当前item由上一个item 求hash 得出
 		keccak512(cache[offset:], cache[offset-hashBytes:offset])
 		atomic.AddUint32(&progress, 1)
 	}
@@ -203,10 +191,8 @@ func generateCache(dest []uint32, epoch uint64, seed []byte) {
 	temp := make([]byte, hashBytes)
 
 	for i := 0; i < cacheRounds; i++ {
-		// rows为cache item 个数
 		for j := 0; j < rows; j++ {
 			var (
-				// srcOff 为 dstOff 的上一个，0的上一个是最后一个
 				srcOff = ((j - 1 + rows) % rows) * hashBytes
 				dstOff = j * hashBytes
 				xorOff = (binary.LittleEndian.Uint32(cache[dstOff:]) % uint32(rows)) * hashBytes
@@ -230,12 +216,10 @@ func swap(buffer []byte) {
 	}
 }
 
-// https://tools.ietf.org/html/draft-eastlake-fnv-13
 // fnv is an algorithm inspired by the FNV hash, which in some cases is used as
 // a non-associative substitute for XOR. Note that we multiply the prime with
 // the full 32-bit input, in contrast with the FNV-1 spec which multiplies the
 // prime with one byte (octet) in turn.
-// 0x01000193 是 uint32 的 FNV prime
 func fnv(a, b uint32) uint32 {
 	return a*0x01000193 ^ b
 }
@@ -247,17 +231,6 @@ func fnvHash(mix []uint32, data []uint32) {
 	}
 }
 
-/****** 关于大小端格式存储
-	小端：低地址存地位，高地址存高位
-	大端：低地址存高位，高地址存地位
-【实例】如果我们将0x1234abcd写入到以0x0000开始的内存中，则结果为
-　　　　big-endian   little-endian
-0x0000    0x12         0xcd
-0x0001    0x23         0xab
-0x0002    0xab         0x34
-0x0003    0xcd         0x12
-*/
-
 // generateDatasetItem combines data from 256 pseudorandomly selected cache nodes,
 // and hashes that to compute a single dataset node.
 func generateDatasetItem(cache []uint32, index uint32, keccak512 hasher) []byte {
@@ -267,8 +240,6 @@ func generateDatasetItem(cache []uint32, index uint32, keccak512 hasher) []byte 
 	// Initialize the mix
 	mix := make([]byte, hashBytes)
 
-	// LITTLE-ENDIAN（小字节序、低字节序）,即低位字节排放在内存的低地址端，高位字节排放在内存的高地址端。
-	// 与之对应的是：BIG-ENDIAN（大字节序、高字节序）
 	binary.LittleEndian.PutUint32(mix, cache[(index%rows)*hashWords]^index)
 	for i := 1; i < hashWords; i++ {
 		binary.LittleEndian.PutUint32(mix[i*4:], cache[(index%rows)*hashWords+uint32(i)])
@@ -281,7 +252,6 @@ func generateDatasetItem(cache []uint32, index uint32, keccak512 hasher) []byte 
 		intMix[i] = binary.LittleEndian.Uint32(mix[i*4:])
 	}
 	// fnv it with a lot of random cache nodes based on index
-	// 伪随机迭代读取256个cache item 求hash，结果放入intMix中
 	for i := uint32(0); i < datasetParents; i++ {
 		parent := fnv(index^i, intMix[i%16]) % rows
 		fnvHash(intMix, cache[parent*hashWords:])
@@ -315,10 +285,12 @@ func generateDataset(dest []uint32, epoch uint64, cache []uint32) {
 	swapped := !isLittleEndian()
 
 	// Convert our destination slice to a byte buffer
-	header := *(*reflect.SliceHeader)(unsafe.Pointer(&dest))
-	header.Len *= 4
-	header.Cap *= 4
-	dataset := *(*[]byte)(unsafe.Pointer(&header))
+	var dataset []byte
+	datasetHdr := (*reflect.SliceHeader)(unsafe.Pointer(&dataset))
+	destHdr := (*reflect.SliceHeader)(unsafe.Pointer(&dest))
+	datasetHdr.Data = destHdr.Data
+	datasetHdr.Len = destHdr.Len * 4
+	datasetHdr.Cap = destHdr.Cap * 4
 
 	// Generate the dataset on many goroutines since it takes a while
 	threads := runtime.NumCPU()
@@ -327,9 +299,8 @@ func generateDataset(dest []uint32, epoch uint64, cache []uint32) {
 	var pend sync.WaitGroup
 	pend.Add(threads)
 
-	var progress uint32
+	var progress uint64
 	for i := 0; i < threads; i++ {
-		// 将dataset分为threads块，由分别由threads个协程求解
 		go func(id int) {
 			defer pend.Done()
 
@@ -337,24 +308,23 @@ func generateDataset(dest []uint32, epoch uint64, cache []uint32) {
 			keccak512 := makeHasher(sha3.NewLegacyKeccak512())
 
 			// Calculate the data segment this thread should generate
-			batch := uint32((size + hashBytes*uint64(threads) - 1) / (hashBytes * uint64(threads)))
-			first := uint32(id) * batch
+			batch := (size + hashBytes*uint64(threads) - 1) / (hashBytes * uint64(threads))
+			first := uint64(id) * batch
 			limit := first + batch
-			if limit > uint32(size/hashBytes) {
-				limit = uint32(size / hashBytes)
+			if limit > size/hashBytes {
+				limit = size / hashBytes
 			}
 			// Calculate the dataset segment
-			percent := uint32(size / hashBytes / 100)
+			percent := size / hashBytes / 100
 			for index := first; index < limit; index++ {
-				// 每个dataset item 由 cache 经过计算获得
-				item := generateDatasetItem(cache, index, keccak512)
+				item := generateDatasetItem(cache, uint32(index), keccak512)
 				if swapped {
 					swap(item)
 				}
 				copy(dataset[index*hashBytes:], item)
 
-				if status := atomic.AddUint32(&progress, 1); status%percent == 0 {
-					logger.Info("Generating DAG in progress", "percentage", uint64(status*100)/(size/hashBytes), "elapsed", common.PrettyDuration(time.Since(start)))
+				if status := atomic.AddUint64(&progress, 1); status%percent == 0 {
+					logger.Info("Generating DAG in progress", "percentage", (status*100)/(size/hashBytes), "elapsed", common.PrettyDuration(time.Since(start)))
 				}
 			}
 		}(i)
@@ -378,50 +348,30 @@ func hashimoto(hash []byte, nonce uint64, size uint64, lookup func(index uint32)
 	seedHead := binary.LittleEndian.Uint32(seed)
 
 	// Start the mix with replicated seed
-	// mixBytes，为mix的宽度，也就是一个mix一共128个字节，uint32占4个字节
-	// 将 seed 拆分到uint32数组中
-	mix := make([]uint32, mixBytes/4) // i先取余16,难道是担心mix长度会大于16？
+	mix := make([]uint32, mixBytes/4)
 	for i := 0; i < len(mix); i++ {
 		mix[i] = binary.LittleEndian.Uint32(seed[i%16*4:])
 	}
-	//通过以上计算后，一个mix例子如下，一个32个 uint32
-	// [2013840771 834098827 1330387715 2340032077 4041827917 1782823877 4228183045 914493311 1647736412
-	//  358042904 1180498046 2326184818 3822219213 1526018901 591176122 112534400 2013840771 834098827 1330387715
-	//  2340032077 4041827917 1782823877 4228183045 914493311 1647736412 358042904 1180498046 2326184818 3822219213
-	//  1526018901 591176122 112534400]
 	// Mix in random dataset nodes
-
-	// 每次接收两个dataset的item，每个dataset item占16个uint32也就是64字节
-	// mix总共占128 字节
 	temp := make([]uint32, len(mix))
 
-	//64次循环，伪随机一次读取相邻两个dataset item 计算hash
 	for i := 0; i < loopAccesses; i++ {
-		// 伪随机选取index
 		parent := fnv(uint32(i)^seedHead, mix[i%len(mix)]) % rows
 		for j := uint32(0); j < mixBytes/hashBytes; j++ {
-			// 每个dataset item 长度为hashWords 16个uint32，也就是64个字节
 			copy(temp[j*hashWords:], lookup(2*parent+j))
 		}
-		// 随机取连个dataset item作为输入之一和mix求hash，hash结果返回给mix，这样循环迭代64次
-		// 也就是mix最后结果为 mix 与128个 dataset item求hash
 		fnvHash(mix, temp)
 	}
-
-	// Compress mix，压缩mix为8个uint32，也就是32字节。压缩的办法是将一个mix item一组求hash代表一个item
-	// 这也就是最终的区块hash，比如 9d2ebd8687783e1ba3ea0fcce09d9b1df61553b3c7e4700c953aa65eca41fd40
-	// 一个16进制数字占半个字节
+	// Compress mix
 	for i := 0; i < len(mix); i += 4 {
 		mix[i/4] = fnv(fnv(fnv(mix[i], mix[i+1]), mix[i+2]), mix[i+3])
 	}
 	mix = mix[:len(mix)/4]
 
-	// 将mix以小端格式存在 digest 中
 	digest := make([]byte, common.HashLength)
 	for i, val := range mix {
 		binary.LittleEndian.PutUint32(digest[i*4:], val)
 	}
-	//  //digest, result，result 为求得的可能符合难度的区块hash
 	return digest, crypto.Keccak256(append(seed, digest...))
 }
 
@@ -431,8 +381,6 @@ func hashimoto(hash []byte, nonce uint64, size uint64, lookup func(index uint32)
 func hashimotoLight(size uint64, cache []uint32, hash []byte, nonce uint64) ([]byte, []byte) {
 	keccak512 := makeHasher(sha3.NewLegacyKeccak512())
 
-	// 验证和挖矿仅在lookup不同，挖矿为了效率，会把dataset存起来，验证需要每次查找时计算一遍
-	// 作者将其抽出来
 	lookup := func(index uint32) []uint32 {
 		rawData := generateDatasetItem(cache, index, keccak512)
 
@@ -449,11 +397,8 @@ func hashimotoLight(size uint64, cache []uint32, hash []byte, nonce uint64) ([]b
 // dataset) in order to produce our final value for a particular header hash and
 // nonce.
 func hashimotoFull(dataset []uint32, hash []byte, nonce uint64) ([]byte, []byte) {
-	// 初始hash为 SealHash，即没有Seal过的区块头hash
 	lookup := func(index uint32) []uint32 {
 		offset := index * hashWords
-		// dataset 很大因为挖矿要尝试巨大次数，故以空间换时间
-		// 若空间实在不够，可以考虑只存一半，另一半由计算获得，如只存偶数索引，遇到奇数索引的数据由最近的偶数索引数据计算得出
 		return dataset[offset : offset+hashWords]
 	}
 	return hashimoto(hash, nonce, uint64(len(dataset))*4, lookup)

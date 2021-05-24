@@ -35,8 +35,6 @@ import (
 type bloomIndexes [3]uint
 
 // calcBloomIndexes returns the bloom filter bit indexes belonging to the given key.
-// calcBloomIndexes计算了这个数据对应的(0-2048)的布隆过滤器中的三个下标
-// 如果在布隆过滤器中对应的三位都为1，那么 b 这个数据就有可能在这里。
 func calcBloomIndexes(b []byte) bloomIndexes {
 	b = crypto.Keccak256(b)
 
@@ -51,8 +49,6 @@ func calcBloomIndexes(b []byte) bloomIndexes {
 // matchers have already found potential matches. Subsequent sub-matchers will
 // binary AND their matches with this vector. If vector is nil, it represents a
 // section to be processed by the first sub-matcher.
-// partialMatches代表了部分匹配的结果。 比入有三个需要过滤的条件 addr1, addr2, addr3 ，需要找到同时匹配这三个条件的数据。 那么我们启动包含了匹配这三个条件的流水线。
-// 第一个匹配的结果会送给第二个，第二个把第一个的结果和自己的结果执行bit与操作，然后作为匹配的结果送给第三个处理。
 type partialMatches struct {
 	section uint64
 	bitset  []byte
@@ -64,8 +60,6 @@ type partialMatches struct {
 //
 // The contest and error fields are used by the light client to terminate matching
 // early if an error is encountered on some path of the pipeline.
-// Retrieval 代表了 一次区块布隆过滤器索引的检索工作， 这个对象被发送给 eth/bloombits.go 里面的 startBloomHandlers来处理，
-// 这个方法从数据库来加载布隆过滤器索引然后放在Bitsets里面返回。
 type Retrieval struct {
 	Bit      uint
 	Sections []uint64
@@ -84,14 +78,10 @@ type Matcher struct {
 	filters    [][]bloomIndexes    // Filter the system is matching for
 	schedulers map[uint]*scheduler // Retrieval schedulers for loading bloom bits
 
-	// 用来传递，检索任务通道
-	retrievers chan chan uint // Retriever processes waiting for bit allocations
-	// 用来返回当前所有的任务数量
-	counters chan chan uint // Retriever processes waiting for task count reports
-	// 用来传递，检索任务的分配
+	retrievers chan chan uint       // Retriever processes waiting for bit allocations
+	counters   chan chan uint       // Retriever processes waiting for task count reports
 	retrievals chan chan *Retrieval // Retriever processes waiting for task allocations
-	// 检索完成的结果传递到这个通道
-	deliveries chan *Retrieval // Retriever processes waiting for task response deliveries
+	deliveries chan *Retrieval      // Retriever processes waiting for task response deliveries
 
 	running uint32 // Atomic flag whether a session is live or not
 }
@@ -134,8 +124,6 @@ func NewMatcher(sectionSize uint64, filters [][][]byte) *Matcher {
 	for _, bloomIndexLists := range m.filters {
 		for _, bloomIndexList := range bloomIndexLists {
 			for _, bloomIndex := range bloomIndexList {
-				// 对于所有可能出现的下标。 我们都生成一个scheduler来进行对应位置的
-				// 布隆过滤数据的检索。
 				m.addScheduler(bloomIndex)
 			}
 		}
@@ -167,7 +155,6 @@ func (m *Matcher) Start(ctx context.Context, begin, end uint64, results chan uin
 	session := &MatcherSession{
 		matcher: m,
 		quit:    make(chan struct{}),
-		kill:    make(chan struct{}),
 		ctx:     ctx,
 	}
 	for _, scheduler := range m.schedulers {
@@ -243,8 +230,6 @@ func (m *Matcher) run(begin, end uint64, buffer int, session *MatcherSession) ch
 		defer session.pend.Done()
 		defer close(source)
 
-		// 这个for循环 构造了subMatch的第一个输入源，剩下的subMatch把上一个的结果作为自己的源
-		// 这个源的bitset字段都是0xff，代表完全的匹配，它将和我们这一步的匹配进行与操作，得到这一步匹配的结果。
 		for i := begin / m.sectionSize; i <= end/m.sectionSize; i++ {
 			select {
 			case <-session.quit:
@@ -257,7 +242,6 @@ func (m *Matcher) run(begin, end uint64, buffer int, session *MatcherSession) ch
 	next := source
 	dist := make(chan *request, buffer)
 
-	// 构建流水线， 前一个的输出作为下一个subMatch的输入。
 	for _, bloom := range m.filters {
 		next = m.subMatch(next, dist, bloom, session)
 	}
@@ -272,15 +256,12 @@ func (m *Matcher) run(begin, end uint64, buffer int, session *MatcherSession) ch
 // binary AND-s the result to the daisy-chain input (source) and forwards it to the daisy-chain output.
 // The matches of each address/topic are calculated by fetching the given sections of the three bloom bit indexes belonging to
 // that address/topic, and binary AND-ing those vectors together.
-// subMatch创建一个子匹配器，用于过滤一组地址或主题，对这些主题进行bit位或操作，然后将上一个结果与当前过滤结果进行位与操作，
-// 如果结果不全位空，就把结果传递给下一个子匹配器。 每个地址/题目的匹配是通过获取属于该地址/题目的三个布隆过滤器位索引的给定部分以及将这些向量二进制AND并在一起来计算的。
-// subMatch是最重要的一个函数， 把filters [][][3]的 第一维度的与，第二维度的或， 第三维度的与操作 结合在一起。
 func (m *Matcher) subMatch(source chan *partialMatches, dist chan *request, bloom []bloomIndexes, session *MatcherSession) chan *partialMatches {
 	// Start the concurrent schedulers for each bit required by the bloom filter
 	sectionSources := make([][3]chan uint64, len(bloom))
 	sectionSinks := make([][3]chan []byte, len(bloom))
 	for i, bits := range bloom {
-		for j, bit := range bits { //j 代表了布隆过滤器的下标，肯定只有三个，取值(0-2048)
+		for j, bit := range bits {
 			sectionSources[i][j] = make(chan uint64, cap(source))
 			sectionSinks[i][j] = make(chan []byte, cap(source))
 
@@ -404,10 +385,8 @@ func (m *Matcher) distributor(dist chan *request, session *MatcherSession) {
 		requests   = make(map[uint][]uint64) // Per-bit list of section requests, ordered by section number
 		unallocs   = make(map[uint]struct{}) // Bits with pending requests but not allocated to any retriever
 		retrievers chan chan uint            // Waiting retrievers (toggled to nil if unallocs is empty)
-	)
-	var (
-		allocs   int            // Number of active allocations to handle graceful shutdown requests
-		shutdown = session.quit // Shutdown request channel, will gracefully wait for pending requests
+		allocs     int                       // Number of active allocations to handle graceful shutdown requests
+		shutdown   = session.quit            // Shutdown request channel, will gracefully wait for pending requests
 	)
 
 	// assign is a helper method fo try to assign a pending bit an actively
@@ -427,15 +406,12 @@ func (m *Matcher) distributor(dist chan *request, session *MatcherSession) {
 	for {
 		select {
 		case <-shutdown:
-			// Graceful shutdown requested, wait until all pending requests are honoured
+			// Shutdown requested. No more retrievers can be allocated,
+			// but we still need to wait until all pending requests have returned.
+			shutdown = nil
 			if allocs == 0 {
 				return
 			}
-			shutdown = nil
-
-		case <-session.kill:
-			// Pending requests not honoured in time, hard terminate
-			return
 
 		case req := <-dist:
 			// New retrieval request arrived to be distributed to some fetcher process
@@ -517,8 +493,9 @@ func (m *Matcher) distributor(dist chan *request, session *MatcherSession) {
 					assign(result.Bit)
 				}
 			}
-			// If we're in the process of shutting down, terminate
-			if allocs == 0 && shutdown == nil {
+
+			// End the session when all pending deliveries have arrived.
+			if shutdown == nil && allocs == 0 {
 				return
 			}
 		}
@@ -532,7 +509,6 @@ type MatcherSession struct {
 
 	closer sync.Once     // Sync object to ensure we only ever close once
 	quit   chan struct{} // Quit channel to request pipeline termination
-	kill   chan struct{} // Term channel to signal non-graceful forced shutdown
 
 	ctx context.Context // Context used by the light client to abort filtering
 	err atomic.Value    // Global error to track retrieval failures deep in the chain
@@ -547,7 +523,6 @@ func (s *MatcherSession) Close() {
 	s.closer.Do(func() {
 		// Signal termination and wait for all goroutines to tear down
 		close(s.quit)
-		time.AfterFunc(time.Second, func() { close(s.kill) })
 		s.pend.Wait()
 	})
 }
@@ -560,10 +535,10 @@ func (s *MatcherSession) Error() error {
 	return nil
 }
 
-// AllocateRetrieval assigns a bloom bit index to a client process that can either
+// allocateRetrieval assigns a bloom bit index to a client process that can either
 // immediately request and fetch the section contents assigned to this bit or wait
 // a little while for more sections to be requested.
-func (s *MatcherSession) AllocateRetrieval() (uint, bool) {
+func (s *MatcherSession) allocateRetrieval() (uint, bool) {
 	fetcher := make(chan uint)
 
 	select {
@@ -575,9 +550,9 @@ func (s *MatcherSession) AllocateRetrieval() (uint, bool) {
 	}
 }
 
-// PendingSections returns the number of pending section retrievals belonging to
+// pendingSections returns the number of pending section retrievals belonging to
 // the given bloom bit index.
-func (s *MatcherSession) PendingSections(bit uint) int {
+func (s *MatcherSession) pendingSections(bit uint) int {
 	fetcher := make(chan uint)
 
 	select {
@@ -589,9 +564,9 @@ func (s *MatcherSession) PendingSections(bit uint) int {
 	}
 }
 
-// AllocateSections assigns all or part of an already allocated bit-task queue
+// allocateSections assigns all or part of an already allocated bit-task queue
 // to the requesting process.
-func (s *MatcherSession) AllocateSections(bit uint, count int) []uint64 {
+func (s *MatcherSession) allocateSections(bit uint, count int) []uint64 {
 	fetcher := make(chan *Retrieval)
 
 	select {
@@ -607,14 +582,10 @@ func (s *MatcherSession) AllocateSections(bit uint, count int) []uint64 {
 	}
 }
 
-// DeliverSections delivers a batch of section bit-vectors for a specific bloom
+// deliverSections delivers a batch of section bit-vectors for a specific bloom
 // bit index to be injected into the processing pipeline.
-func (s *MatcherSession) DeliverSections(bit uint, sections []uint64, bitsets [][]byte) {
-	select {
-	case <-s.kill:
-		return
-	case s.matcher.deliveries <- &Retrieval{Bit: bit, Sections: sections, Bitsets: bitsets}:
-	}
+func (s *MatcherSession) deliverSections(bit uint, sections []uint64, bitsets [][]byte) {
+	s.matcher.deliveries <- &Retrieval{Bit: bit, Sections: sections, Bitsets: bitsets}
 }
 
 // Multiplex polls the matcher session for retrieval tasks and multiplexes it into
@@ -626,17 +597,17 @@ func (s *MatcherSession) DeliverSections(bit uint, sections []uint64, bitsets []
 func (s *MatcherSession) Multiplex(batch int, wait time.Duration, mux chan chan *Retrieval) {
 	for {
 		// Allocate a new bloom bit index to retrieve data for, stopping when done
-		bit, ok := s.AllocateRetrieval()
+		bit, ok := s.allocateRetrieval()
 		if !ok {
 			return
 		}
 		// Bit allocated, throttle a bit if we're below our batch limit
-		if s.PendingSections(bit) < batch {
+		if s.pendingSections(bit) < batch {
 			select {
 			case <-s.quit:
 				// Session terminating, we can't meaningfully service, abort
-				s.AllocateSections(bit, 0)
-				s.DeliverSections(bit, []uint64{}, [][]byte{})
+				s.allocateSections(bit, 0)
+				s.deliverSections(bit, []uint64{}, [][]byte{})
 				return
 
 			case <-time.After(wait):
@@ -644,13 +615,13 @@ func (s *MatcherSession) Multiplex(batch int, wait time.Duration, mux chan chan 
 			}
 		}
 		// Allocate as much as we can handle and request servicing
-		sections := s.AllocateSections(bit, batch)
+		sections := s.allocateSections(bit, batch)
 		request := make(chan *Retrieval)
 
 		select {
 		case <-s.quit:
 			// Session terminating, we can't meaningfully service, abort
-			s.DeliverSections(bit, sections, make([][]byte, len(sections)))
+			s.deliverSections(bit, sections, make([][]byte, len(sections)))
 			return
 
 		case mux <- request:
@@ -662,7 +633,7 @@ func (s *MatcherSession) Multiplex(batch int, wait time.Duration, mux chan chan 
 				s.err.Store(result.Error)
 				s.Close()
 			}
-			s.DeliverSections(result.Bit, result.Sections, result.Bitsets)
+			s.deliverSections(result.Bit, result.Sections, result.Bitsets)
 		}
 	}
 }

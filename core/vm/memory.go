@@ -18,9 +18,8 @@ package vm
 
 import (
 	"fmt"
-	"math/big"
 
-	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/holiman/uint256"
 )
 
 // Memory implements a simple memory model for the ethereum virtual machine.
@@ -41,7 +40,6 @@ func (m *Memory) Set(offset, size uint64, value []byte) {
 	if size > 0 {
 		// length of store may never be less than offset + size.
 		// The store should be resized PRIOR to setting the memory
-		// Memory的长度事先要提前设置
 		if offset+size > uint64(len(m.store)) {
 			panic("invalid memory: store empty")
 		}
@@ -51,8 +49,7 @@ func (m *Memory) Set(offset, size uint64, value []byte) {
 
 // Set32 sets the 32 bytes starting at offset to the value of val, left-padded with zeroes to
 // 32 bytes.
-// 32 bytes = 256 bits
-func (m *Memory) Set32(offset uint64, val *big.Int) {
+func (m *Memory) Set32(offset uint64, val *uint256.Int) {
 	// length of store may never be less than offset + size.
 	// The store should be resized PRIOR to setting the memory
 	if offset+32 > uint64(len(m.store)) {
@@ -61,7 +58,7 @@ func (m *Memory) Set32(offset uint64, val *big.Int) {
 	// Zero the memory area
 	copy(m.store[offset:offset+32], []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
 	// Fill in relevant bits
-	math.ReadBits(val, m.store[offset:offset+32])
+	val.WriteToSlice(m.store[offset:])
 }
 
 // Resize resizes the memory to size
@@ -111,13 +108,11 @@ func (m *Memory) Data() []byte {
 }
 
 // Print dumps the content of the memory.
-// 通过打印可以看出，memory，存的元素应该都是32 byte长度，也就是256bit
 func (m *Memory) Print() {
 	fmt.Printf("### mem %d bytes ###\n", len(m.store))
 	if len(m.store) > 0 {
 		addr := 0
 		for i := 0; i+32 <= len(m.store); i += 32 {
-			// % x，空了一格，是为了一个byte一个byte输出，一个byte代表两个16进制数
 			fmt.Printf("%03d: % x\n", addr, m.store[i:i+32])
 			addr++
 		}

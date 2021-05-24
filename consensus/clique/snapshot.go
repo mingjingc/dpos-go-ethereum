@@ -33,23 +33,17 @@ import (
 // Vote represents a single vote that an authorized signer made to modify the
 // list of authorizations.
 type Vote struct {
-	// 此次由谁投票
-	Signer common.Address `json:"signer"` // Authorized signer that cast this vote
-	// 此次投票块高度
-	Block uint64 `json:"block"` // Block number the vote was cast in (expire old votes)
-	// 投给谁
-	Address common.Address `json:"address"` // Account being voted on to change its authorization
-	// 投票申请踢出或支持
-	Authorize bool `json:"authorize"` // Whether to authorize or deauthorize the voted account
+	Signer    common.Address `json:"signer"`    // Authorized signer that cast this vote
+	Block     uint64         `json:"block"`     // Block number the vote was cast in (expire old votes)
+	Address   common.Address `json:"address"`   // Account being voted on to change its authorization
+	Authorize bool           `json:"authorize"` // Whether to authorize or deauthorize the voted account
 }
 
 // Tally is a simple vote tally to keep the current score of votes. Votes that
 // go against the proposal aren't counted since it's equivalent to not voting.
 type Tally struct {
-	// 支持或踢出
 	Authorize bool `json:"authorize"` // Whether the vote is about authorizing or kicking someone
-	// 票数
-	Votes int `json:"votes"` // Number of votes until now wanting to pass the proposal
+	Votes     int  `json:"votes"`     // Number of votes until now wanting to pass the proposal
 }
 
 // Snapshot is the state of the authorization voting at a given point in time.
@@ -60,15 +54,9 @@ type Snapshot struct {
 	Number  uint64                      `json:"number"`  // Block number where the snapshot was created
 	Hash    common.Hash                 `json:"hash"`    // Block hash where the snapshot was created
 	Signers map[common.Address]struct{} `json:"signers"` // Set of authorized signers at this moment
-	// 提高作恶代价
-	// 签名者在clique中无法连续出块（Recent机制限制），因此如果有人作恶，它最多也只能每隔“出块人数量一半”的高度出一个块，
-	// 这可以保证多数块是正确的，这一点与PoW类似 ----
-	// 只要作恶者的能力（对于PoA来说是作恶的人的数量，对于PoW来说是算力）不超过一半，就可以保证多数块是正常的
-	Recents map[uint64]common.Address `json:"recents"` // Set of recent signers for spam protections
-	// 投票信息
-	Votes []*Vote `json:"votes"` // List of votes cast in chronological order
-	// 投票计数器
-	Tally map[common.Address]Tally `json:"tally"` // Current vote tally to avoid recalculating
+	Recents map[uint64]common.Address   `json:"recents"` // Set of recent signers for spam protections
+	Votes   []*Vote                     `json:"votes"`   // List of votes cast in chronological order
+	Tally   map[common.Address]Tally    `json:"tally"`   // Current vote tally to avoid recalculating
 }
 
 // signersAscending implements the sort interface to allow sorting a list of addresses
@@ -150,8 +138,6 @@ func (s *Snapshot) copy() *Snapshot {
 
 // validVote returns whether it makes sense to cast the specified vote in the
 // given snapshot context (e.g. don't try to add an already authorized signer).
-// 验证投票信息的有效性：1. 若投的是踢出票，则被投帐号必须是签名者
-// 					  2. 若投的是支持票，则被投帐号必须是非签名者
 func (s *Snapshot) validVote(address common.Address, authorize bool) bool {
 	_, signer := s.Signers[address]
 	return (signer && !authorize) || (!signer && authorize)
@@ -217,7 +203,6 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		start  = time.Now()
 		logged = time.Now()
 	)
-	// 如何统计投票信息，以及投票通过后如何生效
 	for i, header := range headers {
 		// Remove any votes on checkpoint blocks
 		number := header.Number.Uint64()
@@ -226,7 +211,6 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 			snap.Tally = make(map[common.Address]Tally)
 		}
 		// Delete the oldest signer from the recent list to allow it signing again
-		// 将高度与当前块相差limit的块从Recents中删除掉，保持Recents是最近签名记录
 		if limit := uint64(len(snap.Signers)/2 + 1); number >= limit {
 			delete(snap.Recents, number-limit)
 		}
@@ -258,8 +242,6 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		}
 		// Tally up the new vote from the signer
 		var authorize bool
-		// 每生成一个块都要执行，若没有提案，被投人地址为0x0，在调用 validVote 总会失败
-		//fmt.Println("统计票", hex.EncodeToString(header.Coinbase[:]), " => ", hex.EncodeToString(header.Nonce[:]))
 		switch {
 		case bytes.Equal(header.Nonce[:], nonceAuthVote):
 			authorize = true
@@ -279,19 +261,15 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		// If the vote passed, update the list of signers
 		if tally := snap.Tally[header.Coinbase]; tally.Votes > len(snap.Signers)/2 {
 			if tally.Authorize {
-				// 若支持票过半，则被加入签名者列表中
 				snap.Signers[header.Coinbase] = struct{}{}
 			} else {
-				// 若踢出票过半，则将该签名者从签名者列表中移除
 				delete(snap.Signers, header.Coinbase)
 
 				// Signer list shrunk, delete any leftover recent caches
-				// 丢弃该签名者Recent签名信息
 				if limit := uint64(len(snap.Signers)/2 + 1); number >= limit {
 					delete(snap.Recents, number-limit)
 				}
 				// Discard any previous votes the deauthorized signer cast
-				// 丢弃该签名者之前投出的所有投票
 				for i := 0; i < len(snap.Votes); i++ {
 					if snap.Votes[i].Signer == header.Coinbase {
 						// Uncast the vote from the cached tally
@@ -305,7 +283,6 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 				}
 			}
 			// Discard any previous votes around the just changed account
-			// 投票结果已处理，清除投给该帐号的所有投票信息
 			for i := 0; i < len(snap.Votes); i++ {
 				if snap.Votes[i].Address == header.Coinbase {
 					snap.Votes = append(snap.Votes[:i], snap.Votes[i+1:]...)
@@ -340,9 +317,6 @@ func (s *Snapshot) signers() []common.Address {
 }
 
 // inturn returns if a signer at a given block height is in-turn or not.
-// 挖矿的人之间是合作关系，因此需要有规则规定某一时刻应该由谁出块。在clique中，
-// inturn状态代表的是“按道理轮到我出块了”，而noturn正好相反。
-// signer 数量在变化，不是绝对公平
 func (s *Snapshot) inturn(number uint64, signer common.Address) bool {
 	signers, offset := s.signers(), 0
 	for offset < len(signers) && signers[offset] != signer {

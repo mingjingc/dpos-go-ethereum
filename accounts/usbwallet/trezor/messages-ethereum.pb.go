@@ -5,8 +5,9 @@ package trezor
 
 import (
 	fmt "fmt"
-	proto "github.com/golang/protobuf/proto"
 	math "math"
+
+	proto "github.com/golang/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -652,9 +653,7 @@ func init() {
 	proto.RegisterType((*EthereumVerifyMessage)(nil), "hw.trezor.messages.ethereum.EthereumVerifyMessage")
 }
 
-func init() {
-	proto.RegisterFile("messages-ethereum.proto", fileDescriptor_cb33f46ba915f15c)
-}
+func init() { proto.RegisterFile("messages-ethereum.proto", fileDescriptor_cb33f46ba915f15c) }
 
 var fileDescriptor_cb33f46ba915f15c = []byte{
 	// 593 bytes of a gzipped FileDescriptorProto

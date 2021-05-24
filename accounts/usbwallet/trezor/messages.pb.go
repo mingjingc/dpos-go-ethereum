@@ -5,9 +5,10 @@ package trezor
 
 import (
 	fmt "fmt"
+	math "math"
+
 	proto "github.com/golang/protobuf/proto"
 	descriptor "github.com/golang/protobuf/protoc-gen-go/descriptor"
-	math "math"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -729,9 +730,7 @@ func init() {
 	proto.RegisterExtension(E_WireNoFsm)
 }
 
-func init() {
-	proto.RegisterFile("messages.proto", fileDescriptor_4dc296cbfe5ffcd5)
-}
+func init() { proto.RegisterFile("messages.proto", fileDescriptor_4dc296cbfe5ffcd5) }
 
 var fileDescriptor_4dc296cbfe5ffcd5 = []byte{
 	// 2430 bytes of a gzipped FileDescriptorProto

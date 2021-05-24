@@ -28,7 +28,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/node"
 )
 
@@ -66,7 +65,7 @@ func benchmarkBloomBits(b *testing.B, sectionSize uint64) {
 	benchDataDir := node.DefaultDataDir() + "/geth/chaindata"
 	b.Log("Running bloombits benchmark   section size:", sectionSize)
 
-	db, err := rawdb.NewLevelDBDatabase(benchDataDir, 128, 1024, "")
+	db, err := rawdb.NewLevelDBDatabase(benchDataDir, 128, 1024, "", false)
 	if err != nil {
 		b.Fatalf("error opening database at %v: %v", benchDataDir, err)
 	}
@@ -122,14 +121,13 @@ func benchmarkBloomBits(b *testing.B, sectionSize uint64) {
 
 	b.Log("Running filter benchmarks...")
 	start = time.Now()
-	mux := new(event.TypeMux)
 	var backend *testBackend
 
 	for i := 0; i < benchFilterCnt; i++ {
 		if i%20 == 0 {
 			db.Close()
-			db, _ = rawdb.NewLevelDBDatabase(benchDataDir, 128, 1024, "")
-			backend = &testBackend{mux, db, cnt, new(event.Feed), new(event.Feed), new(event.Feed), new(event.Feed)}
+			db, _ = rawdb.NewLevelDBDatabase(benchDataDir, 128, 1024, "", false)
+			backend = &testBackend{db: db, sections: cnt}
 		}
 		var addr common.Address
 		addr[0] = byte(i)
@@ -149,7 +147,7 @@ var bloomBitsPrefix = []byte("bloomBits-")
 
 func clearBloomBits(db ethdb.Database) {
 	fmt.Println("Clearing bloombits data...")
-	it := db.NewIteratorWithPrefix(bloomBitsPrefix)
+	it := db.NewIterator(bloomBitsPrefix, nil)
 	for it.Next() {
 		db.Delete(it.Key())
 	}
@@ -159,7 +157,7 @@ func clearBloomBits(db ethdb.Database) {
 func BenchmarkNoBloomBits(b *testing.B) {
 	benchDataDir := node.DefaultDataDir() + "/geth/chaindata"
 	b.Log("Running benchmark without bloombits")
-	db, err := rawdb.NewLevelDBDatabase(benchDataDir, 128, 1024, "")
+	db, err := rawdb.NewLevelDBDatabase(benchDataDir, 128, 1024, "", false)
 	if err != nil {
 		b.Fatalf("error opening database at %v: %v", benchDataDir, err)
 	}
@@ -173,8 +171,7 @@ func BenchmarkNoBloomBits(b *testing.B) {
 
 	b.Log("Running filter benchmarks...")
 	start := time.Now()
-	mux := new(event.TypeMux)
-	backend := &testBackend{mux, db, 0, new(event.Feed), new(event.Feed), new(event.Feed), new(event.Feed)}
+	backend := &testBackend{db: db}
 	filter := NewRangeFilter(backend, 0, int64(*headNum), []common.Address{{}}, nil)
 	filter.Logs(context.Background())
 	d := time.Since(start)

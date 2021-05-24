@@ -51,6 +51,35 @@ func hexToCompact(hex []byte) []byte {
 	return buf
 }
 
+// hexToCompactInPlace places the compact key in input buffer, returning the length
+// needed for the representation
+func hexToCompactInPlace(hex []byte) int {
+	var (
+		hexLen    = len(hex) // length of the hex input
+		firstByte = byte(0)
+	)
+	// Check if we have a terminator there
+	if hexLen > 0 && hex[hexLen-1] == 16 {
+		firstByte = 1 << 5
+		hexLen-- // last part was the terminator, ignore that
+	}
+	var (
+		binLen = hexLen/2 + 1
+		ni     = 0 // index in hex
+		bi     = 1 // index in bin (compact)
+	)
+	if hexLen&1 == 1 {
+		firstByte |= 1 << 4 // odd flag
+		firstByte |= hex[0] // first nibble is contained in the first byte
+		ni++
+	}
+	for ; ni < hexLen; bi, ni = bi+1, ni+2 {
+		hex[bi] = hex[ni]<<4 | hex[ni+1]
+	}
+	hex[0] = firstByte
+	return binLen
+}
+
 func compactToHex(compact []byte) []byte {
 	if len(compact) == 0 {
 		return compact
@@ -65,16 +94,13 @@ func compactToHex(compact []byte) []byte {
 	return base[chop:]
 }
 
-// 将一个byte分为前后四个字节，如 0xa6 分为 0x0a 和 0x06 存储在不同byte中
 func keybytesToHex(str []byte) []byte {
 	l := len(str)*2 + 1
 	var nibbles = make([]byte, l)
 	for i, b := range str {
-		//可以改为位运算，nibbles[i*2] = b >>4; nibbles[i*2+1] = b & 0x0f
 		nibbles[i*2] = b / 16
 		nibbles[i*2+1] = b % 16
 	}
-	// nibbles以16为结束标识，我想作者应该考虑16以超出了16进制单个位（0xf，即15）的最大值，这里用大于16小于256的数都可以吧
 	nibbles[l-1] = 16
 	return nibbles
 }
@@ -93,7 +119,6 @@ func hexToKeybytes(hex []byte) []byte {
 	return key
 }
 
-// 怀疑和keybytesToHex是两个人的思路
 func decodeNibbles(nibbles []byte, bytes []byte) {
 	for bi, ni := 0, 0; ni < len(nibbles); bi, ni = bi+1, ni+2 {
 		bytes[bi] = nibbles[ni]<<4 | nibbles[ni+1]

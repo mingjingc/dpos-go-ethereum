@@ -91,8 +91,6 @@ const (
 
 // PeerEvent is an event emitted when peers are either added or dropped from
 // a p2p.Server or when a message is sent or received on a peer connection
-// 节点事件，该事件可以用来广播或其他用处
-// 事件种类有节点增加/删除、消息发送/接收成功四种
 type PeerEvent struct {
 	Type          PeerEventType `json:"type"`
 	Peer          enode.ID      `json:"peer"`
@@ -105,10 +103,8 @@ type PeerEvent struct {
 }
 
 // Peer represents a connected remote node.
-// 一个Peer代表了一个已建立连接的远程节点
 type Peer struct {
-	rw *conn
-	// 正在运行的协议server里的runPeer启动p.run()，peer run节点调用startProtocols启动运行这里的协议
+	rw      *conn
 	running map[string]*protoRW
 	log     log.Logger
 	created mclock.AbsTime
@@ -142,8 +138,17 @@ func (p *Peer) Node() *enode.Node {
 	return p.rw.node
 }
 
-// Name returns the node name that the remote node advertised.
+// Name returns an abbreviated form of the name
 func (p *Peer) Name() string {
+	s := p.rw.name
+	if len(s) > 20 {
+		return s[:20] + "..."
+	}
+	return s
+}
+
+// Fullname returns the node name that the remote node advertised.
+func (p *Peer) Fullname() string {
 	return p.rw.name
 }
 
@@ -151,6 +156,20 @@ func (p *Peer) Name() string {
 func (p *Peer) Caps() []Cap {
 	// TODO: maybe return copy
 	return p.rw.caps
+}
+
+// RunningCap returns true if the peer is actively connected using any of the
+// enumerated versions of a specific protocol, meaning that at least one of the
+// versions is supported by both this node and the peer p.
+func (p *Peer) RunningCap(protocol string, versions []uint) bool {
+	if proto, ok := p.running[protocol]; ok {
+		for _, ver := range versions {
+			if proto.Version == ver {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // RemoteAddr returns the remote address of the network connection.
@@ -217,7 +236,6 @@ func (p *Peer) run() (remoteRequested bool, err error) {
 	p.startProtocols(writeStart, writeErr)
 
 	// Wait for an error or disconnect.
-	// 死循环，等待处理错误或删除连接
 loop:
 	for {
 		select {
@@ -259,7 +277,6 @@ func (p *Peer) pingLoop() {
 	for {
 		select {
 		case <-ping.C:
-			// 每15 秒 ping一次，若出现错误则peer.run处理
 			if err := SendItems(p.rw, pingMsg); err != nil {
 				p.protoErr <- err
 				return
@@ -287,10 +304,9 @@ func (p *Peer) readLoop(errc chan<- error) {
 	}
 }
 
-// 处理peer发来的消息
 func (p *Peer) handle(msg Msg) error {
 	switch {
-	case msg.Code == pingMsg: //若果是ping则回应pong
+	case msg.Code == pingMsg:
 		msg.Discard()
 		go SendItems(p.rw, pongMsg)
 	case msg.Code == discMsg:
@@ -304,13 +320,14 @@ func (p *Peer) handle(msg Msg) error {
 		return msg.Discard()
 	default:
 		// it's a subprotocol message
-		// 属于peer running里面的一个协议信息，则获取对应的协议对消息进行处理
 		proto, err := p.getProto(msg.Code)
 		if err != nil {
 			return fmt.Errorf("msg code out of range: %v", msg.Code)
 		}
 		if metrics.Enabled {
-			metrics.GetOrRegisterMeter(fmt.Sprintf("%s/%s/%d/%#02x", MetricsInboundTraffic, proto.Name, proto.Version, msg.Code-proto.offset), nil).Mark(int64(msg.meterSize))
+			m := fmt.Sprintf("%s/%s/%d/%#02x", ingressMeterName, proto.Name, proto.Version, msg.Code-proto.offset)
+			metrics.GetOrRegisterMeter(m, nil).Mark(int64(msg.meterSize))
+			metrics.GetOrRegisterMeter(m+"/packets", nil).Mark(1)
 		}
 		select {
 		case proto.in <- msg:
@@ -372,6 +389,7 @@ func (p *Peer) startProtocols(writeStart <-chan struct{}, writeErr chan<- error)
 		}
 		p.log.Trace(fmt.Sprintf("Starting protocol %s/%d", proto.Name, proto.Version))
 		go func() {
+			defer p.wg.Done()
 			err := proto.Run(p, rw)
 			if err == nil {
 				p.log.Trace(fmt.Sprintf("Protocol %s/%d returned", proto.Name, proto.Version))
@@ -380,7 +398,6 @@ func (p *Peer) startProtocols(writeStart <-chan struct{}, writeErr chan<- error)
 				p.log.Trace(fmt.Sprintf("Protocol %s/%d failed", proto.Name, proto.Version), "err", err)
 			}
 			p.protoErr <- err
-			p.wg.Done()
 		}()
 	}
 }
@@ -469,7 +486,7 @@ func (p *Peer) Info() *PeerInfo {
 	info := &PeerInfo{
 		Enode:     p.Node().URLv4(),
 		ID:        p.ID().String(),
-		Name:      p.Name(),
+		Name:      p.Fullname(),
 		Caps:      caps,
 		Protocols: make(map[string]interface{}),
 	}

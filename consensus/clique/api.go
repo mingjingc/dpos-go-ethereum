@@ -28,7 +28,7 @@ import (
 // API is a user facing RPC API to allow controlling the signer and voting
 // mechanisms of the proof-of-authority scheme.
 type API struct {
-	chain  consensus.ChainReader
+	chain  consensus.ChainHeaderReader
 	clique *Clique
 }
 
@@ -39,7 +39,6 @@ func (api *API) GetSnapshot(number *rpc.BlockNumber) (*Snapshot, error) {
 	if number == nil || *number == rpc.LatestBlockNumber {
 		header = api.chain.CurrentHeader()
 	} else {
-		// 调用clique.getSnapshot不填参数
 		header = api.chain.GetHeaderByNumber(uint64(number.Int64()))
 	}
 	// Ensure we have an actually valid block and return its snapshot
@@ -105,7 +104,6 @@ func (api *API) Proposals() map[common.Address]bool {
 
 // Propose injects a new authorization proposal that the signer will attempt to
 // push through.
-// 调用Propose投票后，提案信息暂时存在本节点内存
 func (api *API) Propose(address common.Address, auth bool) {
 	api.clique.lock.Lock()
 	defer api.clique.lock.Unlock()
@@ -172,7 +170,7 @@ func (api *API) Status() (*status, error) {
 		signStatus[sealer]++
 	}
 	return &status{
-		InturnPercent: float64((100 * optimals)) / float64(numBlocks),
+		InturnPercent: float64(100*optimals) / float64(numBlocks),
 		SigningStatus: signStatus,
 		NumBlocks:     numBlocks,
 	}, nil

@@ -27,8 +27,6 @@ import (
 
 // natPMPClient adapts the NAT-PMP protocol implementation so it conforms to
 // the common interface.
-// The NAT Port Mapping Protocol (NAT-PMP)
-// upnp和nat-pmp差不多
 type pmp struct {
 	gw net.IP
 	c  *natpmp.Client
@@ -66,7 +64,6 @@ func (n *pmp) DeleteMapping(protocol string, extport, intport int) (err error) {
 
 func discoverPMP() Interface {
 	// run external address lookups on all potential gateways
-	// 获得所有潜在网关
 	gws := potentialGateways()
 	found := make(chan *pmp, len(gws))
 	for i := range gws {
@@ -83,7 +80,6 @@ func discoverPMP() Interface {
 	// return the one that responds first.
 	// discovery needs to be quick, so we stop caring about
 	// any responses after a very short timeout.
-	// 返回响应最快的网关返回值
 	timeout := time.NewTimer(1 * time.Second)
 	defer timeout.Stop()
 	for range gws {

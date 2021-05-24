@@ -25,7 +25,6 @@ import (
 )
 
 // ServeListener accepts connections on l, serving JSON-RPC on them.
-// ETH ipc文件连接的 JSON-RPC 服务入口
 func (s *Server) ServeListener(l net.Listener) error {
 	for {
 		conn, err := l.Accept()
